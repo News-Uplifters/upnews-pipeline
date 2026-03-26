@@ -170,7 +170,7 @@ upnews-pipeline/
 │
 ├── enrichment/
 │   ├── __init__.py
-│   ├── thumbnails.py              # OG image extraction (TASK 3)
+│   ├── thumbnails.py              # OG image extraction (TASK 3) ✅
 │   └── categorizer.py             # LLM-based categorization (TASK 4)
 │
 ├── pipeline/
@@ -181,6 +181,7 @@ upnews-pipeline/
 ├── tests/
 │   ├── __init__.py
 │   ├── test_fetch_sources.py      # YAML source loading (TASK 1) ✅
+│   ├── test_thumbnails.py         # Thumbnail extraction (TASK 3) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -343,7 +344,7 @@ class RedditSource(BaseSource):
 
 ### TASK 3: Add thumbnail extraction service
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** New feature
 **Effort:** ~3 hours
 
@@ -393,12 +394,12 @@ async def extract_thumbnails_batch(urls: list[str], concurrency: int = 10) -> di
 5. Add unit tests with mock HTTP responses
 
 **Acceptance Criteria:**
-- [ ] `extract_thumbnail()` retrieves OG images successfully
-- [ ] Async batch processing works with concurrency limits
-- [ ] Fallback chain: OG → Twitter → img → favicon
-- [ ] Caching reduces redundant requests
-- [ ] Rate limits respected (no server spam)
-- [ ] Unit tests with mocked responses pass
+- [x] `extract_thumbnail()` retrieves OG images successfully
+- [x] Async batch processing works with concurrency limits
+- [x] Fallback chain: OG → Twitter → img → favicon
+- [x] Caching reduces redundant requests
+- [x] Rate limits respected (no server spam)
+- [x] Unit tests with mocked responses pass
 
 ---
 
