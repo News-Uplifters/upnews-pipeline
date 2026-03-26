@@ -1,0 +1,141 @@
+sources:
+  # Major news outlets (strict thresholds: 0.90+)
+  - name: "BBC News"
+    source_id: "BBCNews"
+    rss_url: "http://feeds.bbc.co.uk/news/world/rss.xml"
+    active: true
+    category: "news"
+    threshold: 0.90
+
+  - name: "CBS News"
+    source_id: "CBSNews"
+    rss_url: "https://www.cbsnews.com/latest/rss/world.xml"
+    active: true
+    category: "news"
+    threshold: 0.90
+
+  - name: "Associated Press"
+    source_id: "APNews"
+    rss_url: "https://apnews.com/apf-services/v2/feeds/rss/world-news.rss"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  - name: "Reuters World"
+    source_id: "ReutersWorld"
+    rss_url: "https://feeds.reuters.com/reuters/worldNews"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  - name: "The New York Times World"
+    source_id: "NYTimesWorld"
+    rss_url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  - name: "NPR News"
+    source_id: "NPRNews"
+    rss_url: "https://feeds.npr.org/1001/rss.xml"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  - name: "The Guardian World"
+    source_id: "GuardianWorld"
+    rss_url: "https://www.theguardian.com/world/rss"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  - name: "Al Jazeera"
+    source_id: "AlJazeeraAll"
+    rss_url: "https://www.aljazeera.com/xml/feeds/all.xml"
+    active: true
+    category: "news"
+    threshold: 0.93
+
+  # Tech & Science
+  - name: "Hacker News"
+    source_id: "HackerNews"
+    rss_url: "https://news.ycombinator.com/rss"
+    active: true
+    category: "tech"
+    threshold: 0.75
+
+  # Social media & Community
+  - name: "Reddit r/UpliftingNews"
+    source_id: "RedditUpliftingNews"
+    rss_url: "https://www.reddit.com/r/UpliftingNews/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Reddit r/MadeMeSmile"
+    source_id: "RedditMadeMe Smile"
+    rss_url: "https://www.reddit.com/r/MadeMeSmile/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.80
+
+  # Local news (placeholders - configure for your region)
+  - name: "Local News Feed"
+    source_id: "LocalNews"
+    rss_url: "https://example.com/news/local/rss.xml"
+    active: false
+    category: "local"
+    threshold: 0.75
+
+  # Additional sources (inactive by default)
+  - name: "The Independent"
+    source_id: "Independent"
+    rss_url: "https://www.independent.co.uk/news/world/rss.xml"
+    active: false
+    category: "news"
+    threshold: 0.85
+
+  - name: "Sky News"
+    source_id: "SkyNews"
+    rss_url: "https://feeds.skynews.com/feeds/rss/news.xml"
+    active: false
+    category: "news"
+    threshold: 0.85
+
+  - name: "CNN"
+    source_id: "CNN"
+    rss_url: "http://rss.cnn.com/rss/cnn_world.rss"
+    active: false
+    category: "news"
+    threshold: 0.85
+
+  - name: "France 24"
+    source_id: "France24"
+    rss_url: "https://www.france24.com/en/rss"
+    active: false
+    category: "news"
+    threshold: 0.85
+
+  - name: "DW (Deutsche Welle)"
+    source_id: "DW"
+    rss_url: "https://www.dw.com/en/?&format=rss"
+    active: false
+    category: "news"
+    threshold: 0.85
+
+  - name: "BBC Science"
+    source_id: "BBCScience"
+    rss_url: "http://feeds.bbc.co.uk/news/science_and_environment/rss.xml"
+    active: false
+    category: "science"
+    threshold: 0.80
+
+  - name: "Reddit r/Science"
+    source_id: "RedditScience"
+    rss_url: "https://www.reddit.com/r/science/.rss"
+    active: false
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
