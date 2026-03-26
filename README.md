@@ -171,7 +171,7 @@ upnews-pipeline/
 ├── enrichment/
 │   ├── __init__.py
 │   ├── thumbnails.py              # OG image extraction (TASK 3) ✅
-│   └── categorizer.py             # LLM-based categorization (TASK 4)
+│   └── categorizer.py             # Zero-shot categorization (TASK 4) ✅
 │
 ├── pipeline/
 │   ├── __init__.py
@@ -182,6 +182,7 @@ upnews-pipeline/
 │   ├── __init__.py
 │   ├── test_fetch_sources.py      # YAML source loading (TASK 1) ✅
 │   ├── test_thumbnails.py         # Thumbnail extraction (TASK 3) ✅
+│   ├── test_categorizer.py        # Categorization service (TASK 4) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -405,7 +406,7 @@ async def extract_thumbnails_batch(urls: list[str], concurrency: int = 10) -> di
 
 ### TASK 4: Upgrade categorization from keyword-matching to zero-shot classifier or LLM API
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Enhancement + ML
 **Effort:** ~5 hours
 
@@ -457,12 +458,12 @@ def categorize_batch(articles: list[dict], categories: list[str] = None) -> list
 5. Document category definitions and scoring
 
 **Acceptance Criteria:**
-- [ ] Zero-shot classifier integrated
-- [ ] Articles assigned to 1+ categories with confidence scores
-- [ ] Multi-label support (one article, multiple categories possible)
-- [ ] Pipeline enriches articles with category field
-- [ ] Inference time < 100ms per article (batch)
-- [ ] Unit tests pass
+- [x] Zero-shot classifier integrated
+- [x] Articles assigned to 1+ categories with confidence scores
+- [x] Multi-label support (one article, multiple categories possible)
+- [x] Pipeline enriches articles with category field
+- [x] Inference time < 100ms per article (batch)
+- [x] Unit tests pass
 
 ---
 

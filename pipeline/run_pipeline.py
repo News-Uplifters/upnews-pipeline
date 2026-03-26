@@ -46,14 +46,25 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
         logger.error(f"Classification failed: {e}")
         return {"articles_fetched": len(articles), "articles_classified": 0}
 
-    # TODO: Step 4: Enrich articles (TASK 3, 4, 5)
-    # from enrichment.thumbnails import extract_thumbnails_batch
-    # from enrichment.categorizer import categorize_batch
-    # from pipeline.summarizer import summarize_batch
-    # logger.info("Step 3: Enriching articles...")
-    # classified_df['thumbnail_url'] = ...
-    # classified_df['category'] = ...
-    # classified_df['summary'] = ...
+    # Step 4: Enrich articles with categories (TASK 4)
+    logger.info("Step 3: Categorizing articles...")
+    try:
+        from enrichment.categorizer import categorize_batch  # noqa: import-outside-toplevel
+        article_dicts = classified_df.to_dict(orient="records")
+        categorized = categorize_batch(article_dicts)
+        import pandas as pd  # noqa: import-outside-toplevel
+        categorized_df = pd.DataFrame(categorized)
+        logger.info(
+            "  → Categories assigned: %s",
+            categorized_df["category"].value_counts().to_dict() if "category" in categorized_df.columns else {},
+        )
+    except Exception as e:
+        logger.error("Categorization failed: %s", e)
+        categorized_df = classified_df
+
+    # TODO: Step 5: Thumbnail extraction (TASK 3 integration)
+    # TODO: Step 6: Summary generation (TASK 5)
+    # TODO: Step 7: Write to database (TASK 6)
 
     # TODO: Step 5: Write to database (TASK 6)
     # from pipeline.database import write_articles
@@ -66,6 +77,7 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
     return {
         "articles_fetched": len(articles),
         "articles_classified": len(classified_df),
+        "articles_categorized": len(categorized_df),
     }
 
 if __name__ == "__main__":
