@@ -264,7 +264,7 @@ sources:
 
 ### TASK 2: Implement pluggable source adapter pattern
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Refactoring + feature
 **Effort:** ~4 hours
 
@@ -333,11 +333,11 @@ class RedditSource(BaseSource):
 5. Add adapter selection logic in `fetch_sources.py`
 
 **Acceptance Criteria:**
-- [ ] `BaseSource` ABC defined
-- [ ] `RSSSource` adapter passes all existing RSS tests
-- [ ] `RedditSource` adapter extracts external links correctly
-- [ ] `crawl_all_sources.py` uses factory to instantiate sources
-- [ ] Backward compatible with existing crawler code
+- [x] `BaseSource` ABC defined
+- [x] `RSSSource` adapter passes all existing RSS tests
+- [x] `RedditSource` adapter extracts external links correctly
+- [x] `crawl_all_sources.py` uses factory to instantiate sources
+- [x] Backward compatible with existing crawler code
 
 ---
 
