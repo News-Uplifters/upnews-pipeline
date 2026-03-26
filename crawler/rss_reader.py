@@ -16,7 +16,7 @@ def clean_url(url):
 def extract_reddit_external(url):
     try:
         r = requests.get(url, timeout=10)
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(r.text, "html.parser")
         tag = soup.find("shreddit-post")
         if tag and tag.get("content-href"):
             link = tag.get("content-href")
