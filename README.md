@@ -176,13 +176,14 @@ upnews-pipeline/
 ├── pipeline/
 │   ├── __init__.py
 │   ├── run_pipeline.py            # Main orchestrator
-│   └── summarizer.py              # DistilBART summarization
+│   └── summarizer.py              # DistilBART summarization (TASK 5) ✅
 │
 ├── tests/
 │   ├── __init__.py
 │   ├── test_fetch_sources.py      # YAML source loading (TASK 1) ✅
 │   ├── test_thumbnails.py         # Thumbnail extraction (TASK 3) ✅
 │   ├── test_categorizer.py        # Categorization service (TASK 4) ✅
+│   ├── test_summarizer.py         # Summarization service (TASK 5) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -469,7 +470,7 @@ def categorize_batch(articles: list[dict], categories: list[str] = None) -> list
 
 ### TASK 5: Add article summary generation
 
-**Status:** Partially complete (DistilBART stub exists)
+**Status:** ✅ Done
 **Type:** Enhancement + NLP
 **Effort:** ~3 hours
 
@@ -509,11 +510,11 @@ async def summarize_batch(texts: list[str], batch_size: int = 8) -> list[str]:
 5. Unit tests with real articles
 
 **Acceptance Criteria:**
-- [ ] DistilBART summarizer working
-- [ ] Summaries 1-3 sentences, coherent
-- [ ] Batch processing efficient
-- [ ] Caching prevents redundant summarization
-- [ ] Unit tests pass (test with BBC, Reddit articles)
+- [x] DistilBART summarizer working
+- [x] Summaries 1-3 sentences, coherent
+- [x] Batch processing efficient
+- [x] Caching prevents redundant summarization
+- [x] Unit tests pass (test with BBC, Reddit articles)
 
 ---
 

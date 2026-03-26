@@ -63,12 +63,33 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
         categorized_df = classified_df
 
     # TODO: Step 5: Thumbnail extraction (TASK 3 integration)
-    # TODO: Step 6: Summary generation (TASK 5)
-    # TODO: Step 7: Write to database (TASK 6)
 
-    # TODO: Step 5: Write to database (TASK 6)
+    # Step 6: Generate summaries (TASK 5)
+    logger.info("Step 4: Generating article summaries...")
+    try:
+        from pipeline.summarizer import summarize  # noqa: import-outside-toplevel
+        article_dicts = categorized_df.to_dict(orient="records")
+        summarized = []
+        for art in article_dicts:
+            text = art.get("body") or art.get("title", "")
+            try:
+                art["summary"] = summarize(text)
+            except (ValueError, Exception) as e:
+                logger.warning("Summarization failed for article '%s': %s", art.get("title", "")[:60], e)
+                art["summary"] = None
+            summarized.append(art)
+        import pandas as pd  # noqa: import-outside-toplevel
+        summarized_df = pd.DataFrame(summarized)
+        summaries_generated = summarized_df["summary"].notna().sum()
+        logger.info("  → Summaries generated: %d/%d", summaries_generated, len(summarized_df))
+    except Exception as e:
+        logger.error("Summary generation failed: %s", e)
+        summarized_df = categorized_df
+        summaries_generated = 0
+
+    # TODO: Step 7: Write to database (TASK 6)
     # from pipeline.database import write_articles
-    # write_articles(classified_df)
+    # write_articles(summarized_df)
 
     logger.info("="*60)
     logger.info("Pipeline complete")
@@ -78,6 +99,7 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
         "articles_fetched": len(articles),
         "articles_classified": len(classified_df),
         "articles_categorized": len(categorized_df),
+        "articles_summarized": int(summaries_generated),
     }
 
 if __name__ == "__main__":
