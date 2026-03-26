@@ -161,7 +161,7 @@ upnews-pipeline/
 ├── crawler/
 │   ├── __init__.py
 │   ├── rss_reader.py              # RSS feed parsing (existing code)
-│   ├── fetch_sources.py           # Source loading (migrated from Excel)
+│   ├── fetch_sources.py           # Source loading from YAML
 │   └── crawl_all_sources.py       # Orchestrate crawl across all sources
 │
 ├── classifier/
@@ -180,15 +180,15 @@ upnews-pipeline/
 │
 ├── tests/
 │   ├── __init__.py
+│   ├── test_fetch_sources.py      # YAML source loading (TASK 1) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
-│   └── test_pipeline.py
+│   └── test_integration.py
 │
 ├── models/
 │   └── setfit_uplifting_model/    # Pre-trained SetFit model
 │
 ├── data/
-│   ├── news_sources.xlsx          # Legacy Excel (deprecated)
 │   └── articles.db                # SQLite database (TASK 6)
 │
 └── logs/                           # Crawl logs and metrics (TASK 8)
@@ -220,7 +220,7 @@ These tasks represent the core improvements needed to scale and enhance the pipe
 
 ### TASK 1: Replace Excel source registry with YAML config
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Data migration + refactoring
 **Effort:** ~2 hours
 
@@ -254,11 +254,11 @@ sources:
 5. Test with existing source list
 
 **Acceptance Criteria:**
-- [ ] `config/sources.yaml` created with all current sources
-- [ ] `fetch_sources.py` loads from YAML
-- [ ] Thresholds and source IDs preserved
-- [ ] Fallback to Excel if YAML missing (for backward compatibility)
-- [ ] Unit tests pass
+- [x] `config/sources.yaml` created with all current sources
+- [x] `fetch_sources.py` loads from YAML
+- [x] Thresholds and source IDs preserved
+- [x] Fallback to Excel if YAML missing (for backward compatibility)
+- [x] Unit tests pass
 
 ---
 
