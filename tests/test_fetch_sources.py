@@ -198,12 +198,11 @@ class TestLoadSourcesFromYaml:
         with pytest.raises(SourceValidationError):
             load_sources(path=path)
 
-    def test_yaml_with_no_sources_key_falls_through(self, tmp_path):
-        """YAML file without a 'sources' key should fall through to fallback."""
+    def test_yaml_with_no_sources_key_returns_empty(self, tmp_path):
+        """YAML file without a 'sources' key should return an empty DataFrame."""
         p = tmp_path / "sources.yaml"
         p.write_text(yaml.dump({"other_key": []}))
-        # no Excel fallback either, should return empty DataFrame
-        df = load_sources(path=str(p), fallback_excel=str(tmp_path / "nonexistent.xlsx"))
+        df = load_sources(path=str(p))
         assert isinstance(df, pd.DataFrame)
         assert df.empty
 
@@ -234,76 +233,15 @@ class TestLoadSourcesFromYaml:
 
 
 # ---------------------------------------------------------------------------
-# load_sources() — fallback / missing file tests
+# load_sources() — missing file tests
 # ---------------------------------------------------------------------------
 
 
-class TestLoadSourcesFallback:
-    def test_returns_empty_df_when_no_files(self, tmp_path):
-        df = load_sources(
-            path=str(tmp_path / "missing.yaml"),
-            fallback_excel=str(tmp_path / "missing.xlsx"),
-        )
+class TestLoadSourcesMissingFile:
+    def test_returns_empty_df_when_yaml_missing(self, tmp_path):
+        df = load_sources(path=str(tmp_path / "missing.yaml"))
         assert isinstance(df, pd.DataFrame)
         assert df.empty
-
-    def test_falls_back_to_excel_when_yaml_missing(self, tmp_path):
-        """When YAML is absent, load from the Excel file."""
-        excel_path = tmp_path / "sources.xlsx"
-        excel_df = pd.DataFrame(
-            [
-                {
-                    "name": "Excel Source",
-                    "source_id": "ExcelSrc",
-                    "rss_url": "http://excel.com/rss",
-                    "active": "yes",
-                    "threshold": 0.80,
-                }
-            ]
-        )
-        excel_df.to_excel(str(excel_path), index=False)
-
-        df = load_sources(
-            path=str(tmp_path / "nonexistent.yaml"),
-            fallback_excel=str(excel_path),
-        )
-        assert not df.empty
-        assert "excel source" in df["name"].str.lower().values
-
-    def test_excel_fallback_filters_inactive(self, tmp_path):
-        """Excel fallback should only include rows where active == 'yes'."""
-        excel_path = tmp_path / "sources.xlsx"
-        excel_df = pd.DataFrame(
-            [
-                {"name": "Active", "source_id": "A", "rss_url": "http://a.com", "active": "yes"},
-                {"name": "Inactive", "source_id": "B", "rss_url": "http://b.com", "active": "no"},
-            ]
-        )
-        excel_df.to_excel(str(excel_path), index=False)
-
-        df = load_sources(
-            path=str(tmp_path / "nonexistent.yaml"),
-            fallback_excel=str(excel_path),
-        )
-        assert "active" in df["name"].str.lower().values
-        assert "inactive" not in df["name"].str.lower().values
-
-    def test_excel_fallback_drops_missing_rss_url(self, tmp_path):
-        excel_path = tmp_path / "sources.xlsx"
-        excel_df = pd.DataFrame(
-            [
-                {"name": "A", "source_id": "A", "rss_url": "http://a.com", "active": "yes"},
-                {"name": "B", "source_id": "B", "rss_url": None, "active": "yes"},
-            ]
-        )
-        excel_df.to_excel(str(excel_path), index=False)
-
-        df = load_sources(
-            path=str(tmp_path / "nonexistent.yaml"),
-            fallback_excel=str(excel_path),
-        )
-        assert len(df) == 1
-        assert df.iloc[0]["source_id"] == "A"  # values unchanged; only column names are lowercased
 
 
 # ---------------------------------------------------------------------------

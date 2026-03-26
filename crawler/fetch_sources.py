@@ -59,41 +59,30 @@ def validate_sources(sources: list) -> list:
     return sources
 
 
-def load_sources(path="config/sources.yaml", fallback_excel="data/news_sources.xlsx"):
-    """Load news sources from YAML or Excel (fallback).
+def load_sources(path="config/sources.yaml"):
+    """Load news sources from YAML config.
 
     Args:
         path: Path to sources.yaml file
-        fallback_excel: Fallback Excel file path if YAML not found
 
     Returns:
         DataFrame with columns: name, source_id, rss_url, active, threshold, etc.
     """
-    # Try YAML first
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-            if data and 'sources' in data:
-                validate_sources(data['sources'])
-                df = pd.DataFrame(data['sources'])
-                if 'active' in df.columns:
-                    df = df[df['active'] == True]
-                df = df.dropna(subset=['rss_url'])
-                logger.info(f"Loaded {len(df)} active sources from {path}")
-                return df
-            else:
-                logger.warning(f"YAML file {path} has no 'sources' key, trying fallback")
+    if not os.path.exists(path):
+        logger.error(f"Sources config not found: {path}")
+        return pd.DataFrame()
 
-    # Fallback to Excel (deprecated)
-    if os.path.exists(fallback_excel):
-        logger.warning(f"Loading sources from deprecated Excel fallback: {fallback_excel}")
-        df = pd.read_excel(fallback_excel)
-        df.columns = [c.strip().lower() for c in df.columns]
-        if "active" in df.columns:
-            df = df[df["active"] == "yes"]
-        df = df.dropna(subset=["rss_url"])
-        return df
+    with open(path, 'r') as f:
+        data = yaml.safe_load(f)
 
-    logger.error(f"No sources found: checked {path} and {fallback_excel}")
-    # Return empty DataFrame if neither exists
-    return pd.DataFrame()
+    if not data or 'sources' not in data:
+        logger.error(f"No 'sources' key in {path}")
+        return pd.DataFrame()
+
+    validate_sources(data['sources'])
+    df = pd.DataFrame(data['sources'])
+    if 'active' in df.columns:
+        df = df[df['active'] == True]
+    df = df.dropna(subset=['rss_url'])
+    logger.info(f"Loaded {len(df)} active sources from {path}")
+    return df
