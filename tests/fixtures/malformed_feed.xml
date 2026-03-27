@@ -1,0 +1,7 @@
+<?xml this is not valid XML at all
+<rss version="2.0">
+  <channel>
+    <title>Malformed Feed
+    <BROKEN_TAG attr="unclosed
+    <item>
+      <title>Incomplete article

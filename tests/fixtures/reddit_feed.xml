@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>r/UpliftingNews</title>
+  <link href="https://www.reddit.com/r/UpliftingNews/.rss" rel="self"/>
+  <entry>
+    <title>Dog saves child from drowning in river</title>
+    <link href="https://www.reddit.com/r/UpliftingNews/comments/abc123/dog_saves_child/"/>
+    <updated>2026-03-26T10:00:00+00:00</updated>
+    <id>https://www.reddit.com/r/UpliftingNews/comments/abc123/dog_saves_child/</id>
+  </entry>
+  <entry>
+    <title>Local community raises $50k for hospital</title>
+    <link href="https://www.reddit.com/r/UpliftingNews/comments/def456/community_raises/"/>
+    <updated>2026-03-26T09:00:00+00:00</updated>
+    <id>https://www.reddit.com/r/UpliftingNews/comments/def456/community_raises/</id>
+  </entry>
+</feed>
