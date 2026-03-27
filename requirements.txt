@@ -36,8 +36,8 @@ mypy==1.7.1
 # Logging & monitoring
 python-json-logger==2.0.7
 
-# Optional: Claude API (for TASK 5 fallback)
+# Optional: Claude API (for summary generation fallback)
 # anthropic==0.7.6
 
-# Optional: Redis (for TASK 3, 4, 5 caching)
+# Optional: Redis (for caching thumbnails, summaries, categories)
 # redis==5.0.1
