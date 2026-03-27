@@ -10,6 +10,7 @@ This pipeline:
 3. **Enriches** articles with thumbnails, summaries, and structured metadata
 4. **Stores** articles in SQLite (eventually synced to upnews-api)
 5. **Deduplicates** against existing entries to avoid crawling the same article twice
+6. **Logs** structured JSON events to `logs/pipeline.log` and tracks crawl health metrics
 
 Target flow: **RSS Feed → Fetch Articles → Classify → Enrich → Write to DB**
 
@@ -178,6 +179,7 @@ upnews-pipeline/
 │   ├── run_pipeline.py            # Main orchestrator
 │   ├── database.py                # SQLite DB layer - schema, UPSERT, transactions (TASK 6) ✅
 │   ├── deduplication.py           # URL + title/published_at dedup (TASK 7) ✅
+│   ├── logging_config.py          # JSON formatter, setup_logging, CrawlMetrics (TASK 8) ✅
 │   └── summarizer.py              # DistilBART summarization (TASK 5) ✅
 │
 ├── tests/
@@ -188,6 +190,7 @@ upnews-pipeline/
 │   ├── test_summarizer.py         # Summarization service (TASK 5) ✅
 │   ├── test_database.py           # SQLite DB layer (TASK 6) ✅
 │   ├── test_deduplication.py      # Deduplication service (TASK 7) ✅
+│   ├── test_logging_config.py     # Structured logging + CrawlMetrics (TASK 8) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -648,7 +651,7 @@ def article_exists(url: str, db_path: str = "data/articles.db") -> bool:
 
 ### TASK 8: Add structured logging and crawl health metrics
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Operations + Observability
 **Effort:** ~3 hours
 
@@ -702,12 +705,12 @@ Use Python's `logging` module with JSON formatter.
 6. Unit tests for logging output
 
 **Acceptance Criteria:**
-- [ ] JSON logs written to `logs/pipeline.log`
-- [ ] Article-level events logged
-- [ ] Crawl-level metrics recorded
-- [ ] Metrics stored in DB (`crawl_metrics` table)
-- [ ] Structured format valid JSON
-- [ ] Unit tests pass
+- [x] JSON logs written to `logs/pipeline.log`
+- [x] Article-level events logged
+- [x] Crawl-level metrics recorded
+- [x] Metrics stored in DB (`crawl_metrics` table)
+- [x] Structured format valid JSON
+- [x] Unit tests pass
 
 ---
 
