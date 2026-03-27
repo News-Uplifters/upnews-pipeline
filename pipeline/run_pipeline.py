@@ -1,24 +1,33 @@
 """Main pipeline orchestrator."""
 
 import logging
+from datetime import datetime, timezone
+
 from crawler.crawl_all_sources import crawl_all_sources
 from classifier.classify_headlines import filter_positive_news, load_model
 
 logger = logging.getLogger(__name__)
 
-def run_pipeline(limit_per_source=50, classification_threshold=0.75):
+def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="data/articles.db"):
     """Run the complete pipeline: fetch → classify → enrich → store.
 
     Args:
         limit_per_source: Max articles to fetch per RSS source
         classification_threshold: Confidence threshold for positive classification
+        db_path: Path to the SQLite database file
 
     Returns:
         Dict with pipeline metrics: articles_fetched, articles_classified, etc.
     """
+    crawl_start = datetime.now(timezone.utc)
+
     logger.info("="*60)
     logger.info("Starting upnews pipeline")
     logger.info("="*60)
+
+    # Initialise DB
+    from pipeline.database import init_db  # noqa: import-outside-toplevel
+    db = init_db(db_path)
 
     # Step 1: Crawl all sources
     logger.info("Step 1: Crawling all RSS sources...")
@@ -87,9 +96,39 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
         summarized_df = categorized_df
         summaries_generated = 0
 
-    # TODO: Step 7: Write to database (TASK 6)
-    # from pipeline.database import write_articles
-    # write_articles(summarized_df)
+    # Step 7: Write to database (TASK 6)
+    logger.info("Step 5: Writing articles to database...")
+    articles_stored = 0
+    errors_text = None
+    try:
+        article_dicts = summarized_df.to_dict(orient="records")
+        articles_stored = db.upsert_articles(article_dicts)
+        logger.info("  → Stored %d articles in %s", articles_stored, db_path)
+    except Exception as e:
+        logger.error("Database write failed: %s", e)
+        errors_text = str(e)
+
+    crawl_end = datetime.now(timezone.utc)
+
+    # Record crawl metrics
+    try:
+        import pandas as pd  # noqa: import-outside-toplevel
+        avg_score = None
+        if "uplifting_score" in summarized_df.columns:
+            avg_score = float(summarized_df["uplifting_score"].mean())
+        db.record_crawl_metrics(
+            crawl_start=crawl_start,
+            crawl_end=crawl_end,
+            articles_fetched=len(articles),
+            articles_classified=len(classified_df),
+            articles_stored=articles_stored,
+            avg_classification_score=avg_score,
+            errors=errors_text,
+        )
+    except Exception as e:
+        logger.warning("Failed to record crawl metrics: %s", e)
+
+    db.close()
 
     logger.info("="*60)
     logger.info("Pipeline complete")
@@ -100,6 +139,7 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75):
         "articles_classified": len(classified_df),
         "articles_categorized": len(categorized_df),
         "articles_summarized": int(summaries_generated),
+        "articles_stored": articles_stored,
     }
 
 if __name__ == "__main__":
