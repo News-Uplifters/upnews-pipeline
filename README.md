@@ -177,6 +177,7 @@ upnews-pipeline/
 │   ├── __init__.py
 │   ├── run_pipeline.py            # Main orchestrator
 │   ├── database.py                # SQLite DB layer - schema, UPSERT, transactions (TASK 6) ✅
+│   ├── deduplication.py           # URL + title/published_at dedup (TASK 7) ✅
 │   └── summarizer.py              # DistilBART summarization (TASK 5) ✅
 │
 ├── tests/
@@ -186,6 +187,7 @@ upnews-pipeline/
 │   ├── test_categorizer.py        # Categorization service (TASK 4) ✅
 │   ├── test_summarizer.py         # Summarization service (TASK 5) ✅
 │   ├── test_database.py           # SQLite DB layer (TASK 6) ✅
+│   ├── test_deduplication.py      # Deduplication service (TASK 7) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -598,7 +600,7 @@ CREATE INDEX idx_articles_score ON articles(uplifting_score);
 
 ### TASK 7: Add deduplication against existing DB entries
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Feature
 **Effort:** ~2 hours
 
@@ -636,11 +638,11 @@ def article_exists(url: str, db_path: str = "data/articles.db") -> bool:
 4. Add tests with sample URLs
 
 **Acceptance Criteria:**
-- [ ] Duplicate URLs detected and skipped
-- [ ] Fallback to title + published_at dedup works
-- [ ] Pipeline logs deduplicated count
-- [ ] Zero false positives (no real articles skipped)
-- [ ] Unit tests pass
+- [x] Duplicate URLs detected and skipped
+- [x] Fallback to title + published_at dedup works
+- [x] Pipeline logs deduplicated count
+- [x] Zero false positives (no real articles skipped)
+- [x] Unit tests pass
 
 ---
 

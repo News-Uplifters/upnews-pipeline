@@ -38,9 +38,26 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
         logger.warning("No articles fetched. Pipeline complete.")
         return {"articles_fetched": 0, "articles_classified": 0}
 
-    # TODO: Step 2: Deduplicate against DB (TASK 7)
-    # from pipeline.deduplication import deduplicate_articles
-    # articles = deduplicate_articles(articles)
+    # Step 2: Deduplicate against DB (TASK 7)
+    logger.info("Step 2: Deduplicating articles against DB...")
+    from pipeline.deduplication import deduplicate_articles  # noqa: import-outside-toplevel
+    articles_before_dedup = len(articles)
+    articles = deduplicate_articles(articles, db=db)
+    articles_deduplicated = articles_before_dedup - len(articles)
+    logger.info(
+        "  → %d duplicates skipped, %d new articles to process",
+        articles_deduplicated,
+        len(articles),
+    )
+
+    if not articles:
+        logger.info("All fetched articles already in DB. Pipeline complete.")
+        db.close()
+        return {
+            "articles_fetched": articles_before_dedup,
+            "articles_deduplicated": articles_deduplicated,
+            "articles_classified": 0,
+        }
 
     # Step 3: Classify articles
     logger.info("Step 2: Classifying articles...")
@@ -119,7 +136,7 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
         db.record_crawl_metrics(
             crawl_start=crawl_start,
             crawl_end=crawl_end,
-            articles_fetched=len(articles),
+            articles_fetched=articles_before_dedup,
             articles_classified=len(classified_df),
             articles_stored=articles_stored,
             avg_classification_score=avg_score,
@@ -135,7 +152,8 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
     logger.info("="*60)
 
     return {
-        "articles_fetched": len(articles),
+        "articles_fetched": articles_before_dedup,
+        "articles_deduplicated": articles_deduplicated,
         "articles_classified": len(classified_df),
         "articles_categorized": len(categorized_df),
         "articles_summarized": int(summaries_generated),
