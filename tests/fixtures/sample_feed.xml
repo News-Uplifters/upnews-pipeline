@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Test News Feed</title>
+    <link>https://example.com</link>
+    <description>Test news feed for unit tests</description>
+    <item>
+      <title>Scientists discover breakthrough cancer treatment</title>
+      <link>https://example.com/health/cancer-breakthrough</link>
+      <pubDate>Thu, 26 Mar 2026 10:00:00 +0000</pubDate>
+      <description>Researchers announce a major breakthrough in cancer treatment.</description>
+    </item>
+    <item>
+      <title>Community volunteers restore local park</title>
+      <link>https://example.com/community/park-restored</link>
+      <pubDate>Thu, 26 Mar 2026 09:00:00 +0000</pubDate>
+      <description>Hundreds of volunteers gathered to restore the city park.</description>
+    </item>
+    <item>
+      <title>Teen wins international robotics competition</title>
+      <link>https://example.com/tech/robotics-winner</link>
+      <pubDate>Thu, 26 Mar 2026 08:00:00 +0000</pubDate>
+      <description>A 16-year-old wins first place at the global robotics championship.</description>
+    </item>
+  </channel>
+</rss>
