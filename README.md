@@ -176,6 +176,7 @@ upnews-pipeline/
 ├── pipeline/
 │   ├── __init__.py
 │   ├── run_pipeline.py            # Main orchestrator
+│   ├── database.py                # SQLite DB layer - schema, UPSERT, transactions (TASK 6) ✅
 │   └── summarizer.py              # DistilBART summarization (TASK 5) ✅
 │
 ├── tests/
@@ -184,6 +185,7 @@ upnews-pipeline/
 │   ├── test_thumbnails.py         # Thumbnail extraction (TASK 3) ✅
 │   ├── test_categorizer.py        # Categorization service (TASK 4) ✅
 │   ├── test_summarizer.py         # Summarization service (TASK 5) ✅
+│   ├── test_database.py           # SQLite DB layer (TASK 6) ✅
 │   ├── test_rss_reader.py         # Mock RSS feeds (TASK 9)
 │   ├── test_classifier.py
 │   └── test_integration.py
@@ -520,7 +522,7 @@ async def summarize_batch(texts: list[str], batch_size: int = 8) -> list[str]:
 
 ### TASK 6: Replace CSV output with SQLite DB writes
 
-**Status:** Ready to start
+**Status:** ✅ Done
 **Type:** Infrastructure + Data
 **Effort:** ~4 hours
 
@@ -585,12 +587,12 @@ CREATE INDEX idx_articles_score ON articles(uplifting_score);
 6. Unit tests with in-memory SQLite
 
 **Acceptance Criteria:**
-- [ ] SQLite schema created and migrated
-- [ ] Articles written to DB instead of CSV
-- [ ] Transactions atomic (all-or-nothing per crawl)
-- [ ] Schema compatible with upnews-api
-- [ ] Unit tests pass (test UPSERT, foreign keys)
-- [ ] Performance acceptable (< 500ms for 100 articles)
+- [x] SQLite schema created and migrated
+- [x] Articles written to DB instead of CSV
+- [x] Transactions atomic (all-or-nothing per crawl)
+- [x] Schema compatible with upnews-api
+- [x] Unit tests pass (test UPSERT, foreign keys)
+- [x] Performance acceptable (< 500ms for 100 articles)
 
 ---
 
