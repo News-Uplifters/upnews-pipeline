@@ -199,7 +199,7 @@ class TestExtractThumbnail:
         html = '<meta property="og:image" content="https://example.com/og.jpg">'
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://example.com/og.jpg"
@@ -208,7 +208,7 @@ class TestExtractThumbnail:
         html = '<meta name="twitter:image" content="https://example.com/tw.jpg">'
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://example.com/tw.jpg"
@@ -217,7 +217,7 @@ class TestExtractThumbnail:
         html = "<body><img src='https://example.com/img.jpg'></body>"
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://example.com/img.jpg"
@@ -226,7 +226,7 @@ class TestExtractThumbnail:
         html = "<html><body><p>Text only.</p></body></html>"
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://example.com/favicon.ico"
@@ -234,7 +234,7 @@ class TestExtractThumbnail:
     def test_favicon_fallback_on_http_error(self):
         session = _make_mock_session("", status=404)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://example.com/favicon.ico"
@@ -244,7 +244,7 @@ class TestExtractThumbnail:
         _cache_set("https://example.com/article", "https://cached.jpg", cache)
 
         session = _make_mock_session("<html></html>")
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result == "https://cached.jpg"
@@ -254,7 +254,7 @@ class TestExtractThumbnail:
         html = '<meta property="og:image" content="https://example.com/og.jpg">'
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert _cache_get("https://example.com/article", cache) == "https://example.com/og.jpg"
@@ -270,7 +270,7 @@ class TestExtractThumbnail:
         session.get = MagicMock(return_value=resp)
 
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail(
                 "https://example.com/article",
                 max_retries=0,
@@ -286,7 +286,7 @@ class TestExtractThumbnail:
         _cache_set("https://example.com/article", None, cache)
 
         session = _make_mock_session("<html></html>")
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnail("https://example.com/article", _cache=cache, _session=session)
         )
         assert result is None
@@ -299,7 +299,7 @@ class TestExtractThumbnail:
 
 class TestExtractThumbnailsBatch:
     def test_empty_list_returns_empty_dict(self):
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnails_batch([])
         )
         assert result == {}
@@ -328,7 +328,7 @@ class TestExtractThumbnailsBatch:
             MockSession.return_value.__aenter__ = AsyncMock(return_value=session)
             MockSession.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 extract_thumbnails_batch(
                     ["https://a.com/article", "https://b.com/article"],
                     concurrency=2,
@@ -347,7 +347,7 @@ class TestExtractThumbnailsBatch:
         for url in urls:
             _cache_set(url, f"https://cdn.example.com/{url[-1]}.jpg", cache)
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnails_batch(urls, concurrency=2, _cache=cache)
         )
         assert len(result) == 5
@@ -360,7 +360,7 @@ class TestExtractThumbnailsBatch:
         for url in urls:
             _cache_set(url, None, cache)
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnails_batch(urls, _cache=cache)
         )
         assert set(result.keys()) == set(urls)
@@ -372,7 +372,7 @@ class TestExtractThumbnailsBatch:
         _cache_set("https://good.com/article", "https://good.com/img.jpg", cache)
         _cache_set("https://bad.com/article", None, cache)
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             extract_thumbnails_batch(urls, _cache=cache)
         )
         assert result["https://good.com/article"] == "https://good.com/img.jpg"
@@ -389,7 +389,7 @@ class TestFallbackChain:
     def _run(self, html: str, url: str = "https://example.com/article") -> Optional[str]:
         session = _make_mock_session(html)
         cache = _fresh_cache()
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             extract_thumbnail(url, _cache=cache, _session=session)
         )
 

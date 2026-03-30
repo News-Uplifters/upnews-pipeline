@@ -74,7 +74,7 @@ sources:
     threshold: 0.75
 
   - name: "Reddit r/MadeMeSmile"
-    source_id: "RedditMadeMe Smile"
+    source_id: "RedditMadeSmile"
     rss_url: "https://www.reddit.com/r/MadeMeSmile/.rss"
     active: true
     category: "reddit"

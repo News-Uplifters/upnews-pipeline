@@ -373,7 +373,7 @@ def write_articles(
 def _article_to_row(article: Dict) -> Dict:
     """Convert an article dict to the flat param dict expected by the INSERT."""
     return {
-        "url": article.get("url", ""),
+        "url": article.get("url") or article.get("original_url", ""),
         "title": article.get("title", ""),
         "summary": article.get("summary"),
         "body": article.get("body"),

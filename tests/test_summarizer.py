@@ -273,14 +273,14 @@ class TestSummarize:
 
 class TestSummarizeBatch:
     def test_empty_list_returns_empty_list(self):
-        result = asyncio.get_event_loop().run_until_complete(summarize_batch([]))
+        result = asyncio.run(summarize_batch([]))
         assert result == []
 
     def test_returns_same_number_of_summaries(self):
         mock = _make_mock_summarizer("Summary.")
         cache = _fresh_cache()
         texts = [_LONG_TEXT, _LONG_TEXT + " extra.", _LONG_TEXT + " more."]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             summarize_batch(texts, _cache=cache, _summarizer_override=mock)
         )
         assert len(result) == 3
@@ -288,7 +288,7 @@ class TestSummarizeBatch:
     def test_each_result_is_string(self):
         mock = _make_mock_summarizer("A summary.")
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             summarize_batch([_LONG_TEXT], _cache=cache, _summarizer_override=mock)
         )
         assert all(isinstance(s, str) for s in result)
@@ -305,7 +305,7 @@ class TestSummarizeBatch:
 
         mock = MagicMock(side_effect=fake_summarizer)
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             summarize_batch(texts, _cache=cache, _summarizer_override=mock)
         )
         assert result == summaries
@@ -314,7 +314,7 @@ class TestSummarizeBatch:
         mock = _make_mock_summarizer("Summary.")
         cache = _fresh_cache()
         texts = [_LONG_TEXT, ""]
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             summarize_batch(texts, _cache=cache, _summarizer_override=mock)
         )
         assert result[1] == ""
@@ -323,14 +323,14 @@ class TestSummarizeBatch:
         mock = _make_mock_summarizer("Cached.")
         cache = _fresh_cache()
         texts = [_LONG_TEXT]
-        asyncio.get_event_loop().run_until_complete(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
-        asyncio.get_event_loop().run_until_complete(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
+        asyncio.run(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
+        asyncio.run(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
         assert mock.call_count == 1  # second batch hits cache
 
     def test_max_length_forwarded(self):
         mock = _make_mock_summarizer("Summary.")
         cache = _fresh_cache()
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             summarize_batch(
                 [_LONG_TEXT], max_length=60, _cache=cache, _summarizer_override=mock
             )
@@ -341,7 +341,7 @@ class TestSummarizeBatch:
     def test_single_text_batch(self):
         mock = _make_mock_summarizer("Solo summary.")
         cache = _fresh_cache()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             summarize_batch([_LONG_TEXT], _cache=cache, _summarizer_override=mock)
         )
         assert result == ["Solo summary."]

@@ -355,6 +355,7 @@ def test_pipeline_skips_all_duplicate_articles(
     """When all fetched articles already exist in DB, pipeline returns early."""
     article = {
         "title": "Dog saves child",
+        "url": "https://example.com/dog-saves",
         "original_url": "https://example.com/dog-saves",
         "rss_link": "https://example.com/dog-saves",
         "source_id": "TestSource",
@@ -365,7 +366,7 @@ def test_pipeline_skips_all_duplicate_articles(
         "summary": None,
         "thumbnail_url": None,
     }
-    # Pre-seed DB with the article
+    # Pre-seed DB with the article using the canonical url field
     db = init_db(temp_db_path)
     db.upsert_source({
         "source_id": "TestSource", "name": "Test Source",

@@ -1,4 +1,5 @@
-from setfit import SetFitModel
+import os
+
 import pandas as pd
 import re
 
@@ -24,8 +25,56 @@ def _has_uplifting_hint(text, hints):
     return False
 
 def load_model(model_path="models/setfit_uplifting_model"):
-    model = SetFitModel.from_pretrained(model_path)
-    return model
+    """Load the SetFit model from *model_path*.
+
+    Falls back to a rule-based stub when:
+    - the ``CLASSIFIER_MODE`` environment variable is set to ``rules``, or
+    - the model directory does not exist.
+
+    The stub scores each title by hint density so that the rest of the
+    pipeline (thresholds, DB writes) works identically without a GPU.
+    """
+    mode = os.environ.get("CLASSIFIER_MODE", "setfit").lower()
+    if mode == "rules" or not os.path.exists(model_path):
+        return _RuleBasedModel()
+
+    from setfit import SetFitModel  # noqa: import-outside-toplevel
+    return SetFitModel.from_pretrained(model_path)
+
+
+class _RuleBasedModel:
+    """Lightweight rule-based uplifting classifier used when no ML model is available.
+
+    ``predict_proba`` returns ``[[neg_score, pos_score], ...]`` to match the
+    SetFit interface expected by ``filter_positive_news``.
+    """
+
+    # Extra hints used for scoring beyond the UPLIFTING_HINTS list
+    _POSITIVE_HINTS = UPLIFTING_HINTS + (
+        "award", "achievement", "reunited", "healed", "milestone",
+        "historic", "discover", "partnership", "innovative", "growth",
+        "inspiring", "grateful", "joy", "kind", "peace",
+    )
+    _NEGATIVE_HINTS = (
+        "kill", "killed", "dead", "death", "crash", "war", "attack",
+        "tragedy", "disaster", "crisis", "terror", "violence", "arrested",
+        "fire", "flood", "explosion", "murder", "wounded",
+    )
+
+    def predict_proba(self, texts):
+        results = []
+        for text in texts:
+            pos_hits = sum(
+                1 for h in self._POSITIVE_HINTS if _has_uplifting_hint(text, (h,))
+            )
+            neg_hits = sum(
+                1 for h in self._NEGATIVE_HINTS if _has_uplifting_hint(text, (h,))
+            )
+            # Base score 0.5, +0.08 per positive hint, -0.15 per negative hit
+            score = 0.5 + (pos_hits * 0.08) - (neg_hits * 0.15)
+            score = max(0.0, min(1.0, score))
+            results.append([1.0 - score, score])
+        return results
 
 def filter_positive_news(df, model, threshold=0.75, source_thresholds=None):
     if df.empty:

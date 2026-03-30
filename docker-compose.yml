@@ -1,0 +1,60 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# upnews-pipeline  –  local Docker Compose
+#
+# Quick start:
+#   docker compose up --build
+#
+# Run once and exit:
+#   docker compose run --rm pipeline
+#
+# Use the ML SetFit classifier (requires pre-trained weights):
+#   docker compose run --rm -e CLASSIFIER_MODE=setfit pipeline
+#
+# Inspect the database after a run:
+#   sqlite3 data/articles.db "SELECT title, uplifting_score FROM articles LIMIT 10;"
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: upnews-pipeline:local
+    container_name: upnews-pipeline
+
+    # ── Environment ──────────────────────────────────────────────────────────
+    env_file:
+      - .env          # copy .env.example → .env and edit as needed
+    environment:
+      # Paths are absolute inside the container
+      DATABASE_PATH: /app/data/articles.db
+      # Rule-based classifier requires no ML model download.
+      # Change to 'setfit' and mount a trained model to use the ML path.
+      CLASSIFIER_MODE: ${CLASSIFIER_MODE:-rules}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ARTICLES_LIMIT_PER_SOURCE: ${ARTICLES_LIMIT_PER_SOURCE:-50}
+      CLASSIFICATION_THRESHOLD: ${CLASSIFICATION_THRESHOLD:-0.75}
+      THUMBNAIL_CONCURRENCY: ${THUMBNAIL_CONCURRENCY:-10}
+      THUMBNAIL_TIMEOUT: ${THUMBNAIL_TIMEOUT:-5}
+      SUMMARIZATION_METHOD: ${SUMMARIZATION_METHOD:-distilbart}
+      CATEGORIZATION_METHOD: ${CATEGORIZATION_METHOD:-zero-shot}
+      # HuggingFace cache (DistilBART, BART-MNLI) — persisted via volume
+      TRANSFORMERS_CACHE: /app/models/hf_cache
+      HF_HOME: /app/models/hf_cache
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    volumes:
+      # SQLite database — persisted across runs
+      - ./data:/app/data
+      # Structured JSON logs
+      - ./logs:/app/logs
+      # ML model weights (HuggingFace cache + optional SetFit model)
+      # Pre-populate ./models/setfit_uplifting_model/ to enable CLASSIFIER_MODE=setfit
+      - ./models:/app/models
+
+    # ── Restart policy ────────────────────────────────────────────────────────
+    # "no" means run once and stop (suitable for a cron/scheduler wrapper).
+    # Change to "always" or "on-failure" to keep retrying.
+    restart: "no"

@@ -55,6 +55,13 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
         _record_and_close(db, metrics)
         return {"articles_fetched": 0, "articles_classified": 0}
 
+    # Normalise field names: crawler uses original_url/published; DB layer uses url/published_at
+    for article in articles:
+        if "url" not in article or not article["url"]:
+            article["url"] = article.get("original_url") or article.get("rss_link", "")
+        if "published_at" not in article or article["published_at"] is None:
+            article["published_at"] = article.get("published")
+
     # Step 2: Deduplicate against DB
     logger.info("Step 2: Deduplicating articles against DB...")
     metrics.start_stage("dedup")
@@ -155,14 +162,55 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
         logger.error("Categorization failed: %s", e)
         categorized_df = classified_df
 
-    # TODO: Step 5: Thumbnail extraction (TASK 3 integration)
+    # Step 5: Thumbnail extraction
+    logger.info("Step 5: Extracting article thumbnails...")
+    metrics.start_stage("thumbnails")
+    try:
+        import asyncio  # noqa: import-outside-toplevel
+        from enrichment.thumbnails import extract_thumbnails_batch  # noqa: import-outside-toplevel
 
-    # Step 5: Generate summaries
-    logger.info("Step 5: Generating article summaries...")
+        article_dicts_for_thumbs = categorized_df.to_dict(orient="records")
+        urls = [a.get("url", "") for a in article_dicts_for_thumbs if a.get("url")]
+        concurrency = int(__import__("os").environ.get("THUMBNAIL_CONCURRENCY", "10"))
+        timeout = int(__import__("os").environ.get("THUMBNAIL_TIMEOUT", "5"))
+
+        if urls:
+            thumbnail_map = asyncio.run(
+                extract_thumbnails_batch(urls, concurrency=concurrency, timeout=timeout)
+            )
+            for article in article_dicts_for_thumbs:
+                if not article.get("thumbnail_url"):
+                    article["thumbnail_url"] = thumbnail_map.get(article.get("url", ""))
+        else:
+            thumbnail_map = {}
+
+        import pandas as pd  # noqa: import-outside-toplevel
+        thumb_df = pd.DataFrame(article_dicts_for_thumbs)
+        thumb_ms = metrics.end_stage("thumbnails")
+        thumbnails_found = int(thumb_df["thumbnail_url"].notna().sum()) if "thumbnail_url" in thumb_df.columns else 0
+        logger.info(
+            "thumbnails_complete",
+            extra={
+                "event": "thumbnails_complete",
+                "crawl_id": metrics.crawl_id,
+                "thumbnails_found": thumbnails_found,
+                "urls_attempted": len(urls),
+                "duration_ms": round(thumb_ms, 1),
+            },
+        )
+        logger.info("  → Thumbnails found: %d/%d", thumbnails_found, len(urls))
+    except Exception as e:
+        metrics.end_stage("thumbnails")
+        metrics.record_error(f"thumbnails_failed: {e}")
+        logger.error("Thumbnail extraction failed: %s", e)
+        thumb_df = categorized_df
+
+    # Step 6: Generate summaries
+    logger.info("Step 6: Generating article summaries...")
     metrics.start_stage("summarize")
     try:
         from pipeline.summarizer import summarize  # noqa: import-outside-toplevel
-        article_dicts = categorized_df.to_dict(orient="records")
+        article_dicts = thumb_df.to_dict(orient="records")
         summarized = []
         for art in article_dicts:
             text = art.get("body") or art.get("title", "")
@@ -212,11 +260,11 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="da
         metrics.end_stage("summarize")
         metrics.record_error(f"summarization_failed: {e}")
         logger.error("Summary generation failed: %s", e)
-        summarized_df = categorized_df
+        summarized_df = thumb_df
         summaries_generated = 0
 
-    # Step 6: Write to database
-    logger.info("Step 6: Writing articles to database...")
+    # Step 7: Write to database
+    logger.info("Step 7: Writing articles to database...")
     metrics.start_stage("db_write")
     try:
         article_dicts = summarized_df.to_dict(orient="records")
