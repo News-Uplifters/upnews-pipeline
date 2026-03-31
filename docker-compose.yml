@@ -61,8 +61,9 @@ services:
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
-      # SQLite database — persisted across runs
-      - ./data:/app/data
+      # SQLite database — stored in the named volume  upnews-data  so that
+      # upnews-api can mount the same volume and read pipeline-written articles.
+      - upnews-data:/app/data
       # Structured JSON logs
       - ./logs:/app/logs
       # ML model weights (HuggingFace cache + optional SetFit model)
@@ -73,3 +74,13 @@ services:
     # "no" means run once and stop (suitable for a cron/scheduler wrapper).
     # Change to "always" or "on-failure" to keep retrying.
     restart: "no"
+
+
+# ── Named volume shared with upnews-api ──────────────────────────────────────
+# Both repos declare the same volume name; Docker reuses it across projects.
+# End-to-end workflow:
+#   1. cd upnews-pipeline && make local   (populates upnews-data)
+#   2. cd upnews-api      && make local   (reads from upnews-data)
+volumes:
+  upnews-data:
+    name: upnews-data
