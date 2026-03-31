@@ -1,16 +1,28 @@
 version: "3.9"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# upnews-pipeline  –  local Docker Compose
+# upnews-pipeline  –  Docker Compose
 #
-# Quick start:
-#   docker compose up --build
+# Usage — pass the right env file for your target environment:
 #
-# Run once and exit:
-#   docker compose run --rm pipeline
+#   Local (fast, rules-based, DEBUG logging):
+#     docker compose --env-file .env.local up --build
+#     docker compose --env-file .env.local run --rm pipeline   # run once
 #
-# Use the ML SetFit classifier (requires pre-trained weights):
-#   docker compose run --rm -e CLASSIFIER_MODE=setfit pipeline
+#   Dev:
+#     docker compose --env-file .env.dev up --build
+#
+#   PR / Staging:
+#     docker compose --env-file .env.pr up --build
+#
+#   QA:
+#     docker compose --env-file .env.qa up --build
+#
+#   Production:
+#     docker compose --env-file .env.prod up --build -d
+#
+# Or use the Makefile shortcuts:
+#   make local | make dev | make pr | make qa | make prod
 #
 # Inspect the database after a run:
 #   sqlite3 data/articles.db "SELECT title, uplifting_score FROM articles LIMIT 10;"
@@ -21,12 +33,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: upnews-pipeline:local
+    image: upnews-pipeline:${ENV:-local}
     container_name: upnews-pipeline
 
     # ── Environment ──────────────────────────────────────────────────────────
-    env_file:
-      - .env          # copy .env.example → .env and edit as needed
+    # Variables are sourced from whichever --env-file you pass on the CLI.
+    # Defaults here are safe for local use with no env file.
     environment:
       # Paths are absolute inside the container
       DATABASE_PATH: /app/data/upnews.db
@@ -40,6 +52,9 @@ services:
       THUMBNAIL_TIMEOUT: ${THUMBNAIL_TIMEOUT:-5}
       SUMMARIZATION_METHOD: ${SUMMARIZATION_METHOD:-distilbart}
       CATEGORIZATION_METHOD: ${CATEGORIZATION_METHOD:-zero-shot}
+      THUMBNAIL_CACHE_ENABLED: ${THUMBNAIL_CACHE_ENABLED:-true}
+      CRAWLER_TIMEOUT: ${CRAWLER_TIMEOUT:-10}
+      CRAWLER_RETRIES: ${CRAWLER_RETRIES:-2}
       # HuggingFace cache (DistilBART, BART-MNLI) — persisted via volume
       TRANSFORMERS_CACHE: /app/models/hf_cache
       HF_HOME: /app/models/hf_cache

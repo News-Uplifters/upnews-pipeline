@@ -171,6 +171,117 @@ python -m pipeline.run_pipeline
 LOG_LEVEL=DEBUG python -m pipeline.run_pipeline
 ```
 
+## Running with Docker
+
+Docker is the recommended way to run the pipeline — no Python environment setup required.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows) or Docker Engine + Compose v2 (Linux)
+
+### Environment files
+
+The project ships with a set of pre-configured env files — pick the one that matches your target:
+
+| File | Purpose | Log level | Articles/source | Classifier |
+|------|---------|-----------|-----------------|------------|
+| `.env.local` | Personal dev machine | `DEBUG` | 10 | rules |
+| `.env.dev` | Dev / feature deploys | `DEBUG` | 25 | rules |
+| `.env.pr` | PR / staging | `INFO` | 50 | rules |
+| `.env.qa` | QA (pre-prod) | `INFO` | 50 | SetFit |
+| `.env.prod` | Production | `WARNING` | 100 | SetFit |
+
+`.env.local` is gitignored so you can edit it freely. The others are committed as safe configuration templates — inject secrets (e.g. `CLAUDE_API_KEY`) via CI/CD environment variables or a secrets manager, never by editing these files directly.
+
+See `.env.example` for the full list of supported variables with descriptions.
+
+### Quick start (local)
+
+```bash
+# 1. Clone and enter the repo
+git clone https://github.com/News-Uplifters/upnews-pipeline.git
+cd upnews-pipeline
+
+# 2. Build and run a single pipeline cycle (exits when done)
+docker compose --env-file .env.local run --rm pipeline
+
+# 3. Inspect results
+sqlite3 data/upnews.db "SELECT title, uplifting_score, category FROM articles ORDER BY crawled_at DESC LIMIT 10;"
+```
+
+Or use the Makefile shortcut:
+
+```bash
+make run-local
+```
+
+### Start / stop
+
+```bash
+# Build + start (stays up; Ctrl-C to stop)
+make local          # or: docker compose --env-file .env.local up --build
+
+# Run once and remove container
+make run-local      # or: docker compose --env-file .env.local run --rm pipeline
+
+# Stop and remove containers
+make stop           # or: docker compose down
+```
+
+### Other environments
+
+```bash
+make dev            # dev
+make pr             # PR / staging
+make qa             # QA — requires SetFit model weights (see ML Model Setup)
+make prod           # production (detached / background)
+```
+
+Or call Docker Compose directly with any env file:
+
+```bash
+docker compose --env-file .env.prod up --build -d
+```
+
+### Makefile reference
+
+```
+make local | dev | pr | qa | prod      — build + start for that environment
+make run-local | run-dev | ...          — one-shot run, then remove container
+make build-local | build-dev | ...      — build image without running
+make logs                               — tail container logs
+make shell                              — open bash inside the container
+make db                                 — query last 20 articles from SQLite
+make stop                               — stop and remove containers
+make help                               — print this summary
+```
+
+### SetFit classifier in Docker
+
+The `qa` and `prod` env files set `CLASSIFIER_MODE=setfit`. This requires pre-trained model weights to be present at `models/setfit_uplifting_model/` on the **host** machine — the volume mount (`./models:/app/models`) makes them available inside the container automatically.
+
+```bash
+# Copy or download weights first
+cp -r /path/to/weights models/setfit_uplifting_model/
+
+# Then run QA or prod
+make run-qa
+```
+
+If the model directory is missing the pipeline falls back to the rules-based classifier and logs a warning.
+
+### Persisted data
+
+Docker volumes map three host directories into the container:
+
+| Host path | Container path | Contents |
+|-----------|---------------|---------|
+| `./data/` | `/app/data/` | SQLite database (`upnews.db`) |
+| `./logs/` | `/app/logs/` | Structured JSON logs |
+| `./models/` | `/app/models/` | HuggingFace cache + SetFit weights |
+
+These directories are created automatically on first run and persist across container restarts.
+
 ### Individual Components
 
 ```bash

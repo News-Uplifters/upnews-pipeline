@@ -44,7 +44,7 @@ htmlcov/
 .hypothesis/
 
 # Database
-data/articles.db
+data/*.db
 data/*.sqlite
 data/*.sqlite3
 
@@ -58,6 +58,8 @@ models/*.bin
 models/*.safetensors
 
 # Environment variables
+# .env.local is gitignored (personal overrides — edit freely, never commit)
+# .env.dev / .env.pr / .env.qa / .env.prod are tracked (config templates, no real secrets)
 .env
 .env.local
 .env.*.local
