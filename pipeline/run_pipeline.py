@@ -10,7 +10,7 @@ from pipeline.logging_config import CrawlMetrics, get_pipeline_logger, log_artic
 logger = get_pipeline_logger(__name__)
 
 
-def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="data/articles.db"):
+def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="data/upnews.db"):
     """Run the complete pipeline: fetch → classify → enrich → store.
 
     Args:

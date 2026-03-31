@@ -59,8 +59,9 @@ def _make_article(**kwargs):
         "title": "Dog saves drowning child",
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
+        "published_at": datetime(2026, 3, 26, 10, 0, 0),
         "uplifting_score": 0.92,
-        "category": "Community & Social Good",
+        "category": "Community",
         "summary": "A brave dog saved a child.",
         "thumbnail_url": None,
     }
@@ -278,7 +279,7 @@ def _build_pipeline_mocks(articles, uplifting_scores=None):
     mock_model = _make_mock_model(uplifting_scores)
 
     def fake_categorize(article_dicts):
-        return [{**a, "category": "Community & Social Good"} for a in article_dicts]
+        return [{**a, "category": "Community"} for a in article_dicts]
 
     def fake_summarize(text):
         return "A brief summary."

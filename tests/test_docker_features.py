@@ -29,6 +29,7 @@ def _make_article(**kwargs):
         "original_url": "https://example.com/dog-saves",
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
+        "published_at": datetime(2026, 3, 26, 10, 0, 0),
         "threshold": 0.75,
     }
     defaults.update(kwargs)

@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_PATH = "data/articles.db"
+_DEFAULT_DB_PATH = "data/upnews.db"
 
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,7 @@ ENV HF_HOME=/app/models/hf_cache
 
 # Default environment — override with docker-compose or --env-file
 ENV LOG_LEVEL=INFO \
-    DATABASE_PATH=/app/data/articles.db \
+    DATABASE_PATH=/app/data/upnews.db \
     ARTICLES_LIMIT_PER_SOURCE=50 \
     CLASSIFICATION_THRESHOLD=0.75 \
     THUMBNAIL_CONCURRENCY=10 \

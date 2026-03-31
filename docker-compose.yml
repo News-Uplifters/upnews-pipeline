@@ -29,7 +29,7 @@ services:
       - .env          # copy .env.example → .env and edit as needed
     environment:
       # Paths are absolute inside the container
-      DATABASE_PATH: /app/data/articles.db
+      DATABASE_PATH: /app/data/upnews.db
       # Rule-based classifier requires no ML model download.
       # Change to 'setfit' and mount a trained model to use the ML path.
       CLASSIFIER_MODE: ${CLASSIFIER_MODE:-rules}

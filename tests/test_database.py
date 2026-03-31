@@ -12,6 +12,7 @@ import pytest
 from pipeline.database import (
     SQLiteDB,
     _article_to_row,
+    _category_to_slug,
     _coerce_dt,
     _fmt_dt,
     init_db,
@@ -55,9 +56,9 @@ def _make_article(**kwargs):
         "url": "https://example.com/article/1",
         "title": "A Wonderful Article",
         "summary": "Short summary.",
-        "body": "Full article body text.",
+        "content": "Full article body text.",
         "thumbnail_url": "https://example.com/img.jpg",
-        "category": "Health & Wellness",
+        "category": "Health",
         "source_id": "TestSource",
         "uplifting_score": 0.92,
         "published_at": datetime(2026, 3, 1, 12, 0, 0, tzinfo=timezone.utc),
@@ -135,6 +136,31 @@ class TestInit:
         }
         assert "crawl_metrics" in tables
 
+    def test_categories_table_created(self, db):
+        conn = db.connect()
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "categories" in tables
+
+    def test_bookmarks_table_created(self, db):
+        conn = db.connect()
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "bookmarks" in tables
+
+    def test_categories_seeded_on_init(self, db):
+        rows = db.connect().execute("SELECT slug FROM categories").fetchall()
+        slugs = {r["slug"] for r in rows}
+        assert {"health", "environment", "community", "science-tech"} <= slugs
+
     def test_indexes_created(self, db):
         conn = db.connect()
         indexes = {
@@ -161,10 +187,11 @@ class TestInit:
 class TestTransaction:
     def test_transaction_commits_on_success(self, db):
         db.upsert_source(_make_source())
+        src_int_id = db.get_source_int_id("TestSource")
         with db.transaction() as conn:
             conn.execute(
                 "INSERT INTO articles (url, title, source_id) VALUES (?, ?, ?)",
-                ("https://example.com/tx-ok", "TX OK", "TestSource"),
+                ("https://example.com/tx-ok", "TX OK", src_int_id),
             )
         row = db.connect().execute(
             "SELECT url FROM articles WHERE url = ?", ("https://example.com/tx-ok",)
@@ -173,11 +200,12 @@ class TestTransaction:
 
     def test_transaction_rolls_back_on_exception(self, db):
         db.upsert_source(_make_source())
+        src_int_id = db.get_source_int_id("TestSource")
         with pytest.raises(ValueError):
             with db.transaction() as conn:
                 conn.execute(
                     "INSERT INTO articles (url, title, source_id) VALUES (?, ?, ?)",
-                    ("https://example.com/tx-fail", "TX Fail", "TestSource"),
+                    ("https://example.com/tx-fail", "TX Fail", src_int_id),
                 )
                 raise ValueError("Intentional rollback")
 
@@ -195,7 +223,8 @@ class TestTransaction:
 
 class TestUpsertSource:
     def test_insert_new_source(self, db):
-        db.upsert_source(_make_source())
+        int_id = db.upsert_source(_make_source())
+        assert isinstance(int_id, int) and int_id > 0
         row = db.connect().execute(
             "SELECT * FROM sources WHERE source_id = ?", ("TestSource",)
         ).fetchone()
@@ -273,13 +302,13 @@ class TestUpsertArticle:
 
     def test_nullable_fields_stored_as_null(self, db):
         db.upsert_source(_make_source())
-        db.upsert_article(_make_article(summary=None, body=None, thumbnail_url=None))
+        db.upsert_article(_make_article(summary=None, content=None, thumbnail_url=None))
         row = db.connect().execute(
-            "SELECT summary, body, thumbnail_url FROM articles WHERE url = ?",
+            "SELECT summary, content, thumbnail_url FROM articles WHERE url = ?",
             ("https://example.com/article/1",),
         ).fetchone()
         assert row["summary"] is None
-        assert row["body"] is None
+        assert row["content"] is None
         assert row["thumbnail_url"] is None
 
     def test_uplifting_score_stored(self, db):
@@ -322,14 +351,13 @@ class TestUpsertArticles:
         assert row["title"] == "Updated"
 
     def test_bulk_insert_is_atomic_on_error(self, db):
-        """If any row violates a constraint, the whole batch must be rolled back."""
-        # Do NOT insert the source — both articles reference a non-existent source_id.
-        # With PRAGMA foreign_keys=ON this raises IntegrityError.
+        """If source_id cannot be resolved, ValueError is raised and nothing is written."""
+        # Do NOT insert the source — upsert_articles raises ValueError for unknown source_id.
         articles = [
             _make_article(url="https://example.com/ok", source_id="MISSING"),
             _make_article(url="https://example.com/also-ok", source_id="MISSING"),
         ]
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(ValueError, match="MISSING"):
             db.upsert_articles(articles)
 
         count = db.connect().execute(
@@ -453,7 +481,7 @@ class TestInitDb:
             .execute("SELECT name FROM sqlite_master WHERE type='table'")
             .fetchall()
         }
-        assert {"articles", "sources", "crawl_metrics"} <= tables
+        assert {"articles", "sources", "crawl_metrics", "categories", "bookmarks"} <= tables
         db.close()
 
 
@@ -497,6 +525,7 @@ class TestArticleToRow:
         row = _article_to_row({"url": "https://x.com", "title": "T", "source_id": "S"})
         assert row["summary"] is None
         assert row["thumbnail_url"] is None
+        assert row["content"] is None
         assert row["category"] is None
 
     def test_datetime_published_at_converted_to_string(self):
@@ -532,6 +561,52 @@ class TestFmtDt:
     def test_format(self):
         dt = datetime(2026, 3, 25, 14, 30, 45, tzinfo=timezone.utc)
         assert _fmt_dt(dt) == "2026-03-25 14:30:45"
+
+
+class TestCategoryToSlug:
+    def test_new_labels_return_correct_slug(self):
+        assert _category_to_slug("Health") == "health"
+        assert _category_to_slug("Science & Tech") == "science-tech"
+        assert _category_to_slug("Arts & Culture") == "arts-culture"
+
+    def test_legacy_labels_mapped_to_slug(self):
+        assert _category_to_slug("Health & Wellness") == "health"
+        assert _category_to_slug("Technology & Science") == "science-tech"
+        assert _category_to_slug("Culture & Arts") == "arts-culture"
+        assert _category_to_slug("Community & Social Good") == "community"
+
+    def test_none_returns_none(self):
+        assert _category_to_slug(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _category_to_slug("") is None
+
+    def test_unknown_category_falls_back_to_slugified(self):
+        result = _category_to_slug("Custom Category")
+        assert isinstance(result, str)
+        assert " " not in result
+
+
+class TestGetSourceIntId:
+    def test_returns_integer_id_for_known_source(self, db):
+        db.upsert_source(_make_source())
+        int_id = db.get_source_int_id("TestSource")
+        assert isinstance(int_id, int) and int_id > 0
+
+    def test_returns_none_for_unknown_source(self, db):
+        assert db.get_source_int_id("NonExistentSource") is None
+
+    def test_bulk_map_returns_all_known(self, db):
+        db.upsert_source(_make_source(source_id="S1", name="Source 1"))
+        db.upsert_source(_make_source(source_id="S2", name="Source 2"))
+        result = db.get_source_int_id_map(["S1", "S2", "UNKNOWN"])
+        assert "S1" in result
+        assert "S2" in result
+        assert "UNKNOWN" not in result
+
+    def test_upsert_article_raises_for_unknown_source(self, db):
+        with pytest.raises(ValueError, match="unknown_src"):
+            db.upsert_article(_make_article(source_id="unknown_src"))
 
 
 # Allow running directly

@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DEFAULT_CATEGORIES: List[str] = [
-    "Health & Wellness",
-    "Environment & Nature",
-    "Community & Social Good",
-    "Technology & Science",
-    "Business & Economics",
-    "Culture & Arts",
-    "Human Interest",
+    "Health",
+    "Environment",
+    "Community",
+    "Science & Tech",
+    "Education",
+    "Sports",
+    "Arts & Culture",
 ]
 
 # ---------------------------------------------------------------------------

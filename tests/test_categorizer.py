@@ -35,7 +35,7 @@ def _fresh_cache() -> sqlite3.Connection:
 
 
 def _make_mock_classifier(
-    top_label: str = "Technology & Science",
+    top_label: str = "Science & Tech",
     all_labels: List[str] = None,
     all_scores: List[float] = None,
 ) -> MagicMock:
@@ -114,13 +114,13 @@ class TestCache:
         conn = _fresh_cache()
         key = _make_cache_key("some title", "", DEFAULT_CATEGORIES)
         result = {
-            "category": "Technology & Science",
-            "scores": {"Technology & Science": 0.9},
+            "category": "Science & Tech",
+            "scores": {"Science & Tech": 0.9},
             "confidence": 0.9,
         }
         _cache_set(key, result, conn)
         cached = _cache_get(key, conn)
-        assert cached["category"] == "Technology & Science"
+        assert cached["category"] == "Science & Tech"
         assert cached["confidence"] == pytest.approx(0.9)
 
     def test_scores_round_trip_as_dict(self):
@@ -146,14 +146,14 @@ class TestCache:
 
 class TestCategorizeArticle:
     def test_returns_top_category(self):
-        mock_clf = _make_mock_classifier("Technology & Science")
+        mock_clf = _make_mock_classifier("Science & Tech")
         cache = _fresh_cache()
         result = categorize_article(
             "Scientists invent new battery",
             _cache=cache,
             _classifier_override=mock_clf,
         )
-        assert result["category"] == "Technology & Science"
+        assert result["category"] == "Science & Tech"
 
     def test_returns_confidence_float(self):
         mock_clf = _make_mock_classifier()
@@ -380,12 +380,12 @@ class TestSetClassifier:
         """set_classifier() replaces the module-level singleton."""
         import enrichment.categorizer as mod
 
-        mock_clf = _make_mock_classifier("Culture & Arts")
+        mock_clf = _make_mock_classifier("Arts & Culture")
         set_classifier(mock_clf)
 
         cache = _fresh_cache()
         result = categorize_article("Any title", _cache=cache)
-        assert result["category"] == "Culture & Arts"
+        assert result["category"] == "Arts & Culture"
         mock_clf.assert_called_once()
 
         # Restore to None so other tests aren't affected
@@ -411,13 +411,13 @@ class TestDefaultCategories:
 
     def test_expected_labels_present(self):
         expected = {
-            "Health & Wellness",
-            "Environment & Nature",
-            "Community & Social Good",
-            "Technology & Science",
-            "Business & Economics",
-            "Culture & Arts",
-            "Human Interest",
+            "Health",
+            "Environment",
+            "Community",
+            "Science & Tech",
+            "Education",
+            "Sports",
+            "Arts & Culture",
         }
         assert set(DEFAULT_CATEGORIES) == expected
 
