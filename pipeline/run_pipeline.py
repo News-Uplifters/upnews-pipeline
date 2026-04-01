@@ -1,6 +1,7 @@
 """Main pipeline orchestrator."""
 
 import logging
+import os
 from datetime import datetime, timezone
 
 from crawler.crawl_all_sources import crawl_all_sources
@@ -10,17 +11,20 @@ from pipeline.logging_config import CrawlMetrics, get_pipeline_logger, log_artic
 logger = get_pipeline_logger(__name__)
 
 
-def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path="data/upnews.db"):
+def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path=None):
     """Run the complete pipeline: fetch → classify → enrich → store.
 
     Args:
         limit_per_source: Max articles to fetch per RSS source
         classification_threshold: Confidence threshold for positive classification
-        db_path: Path to the SQLite database file
+        db_path: Path to the SQLite database file (defaults to DATABASE_PATH env var
+                 or "data/upnews.db")
 
     Returns:
         Dict with pipeline metrics: articles_fetched, articles_classified, etc.
     """
+    if db_path is None:
+        db_path = os.getenv("DATABASE_PATH", "data/upnews.db")
     metrics = CrawlMetrics.start()
 
     logger.info("pipeline_start", extra={"event": "pipeline_start", "crawl_id": metrics.crawl_id})
@@ -328,8 +332,10 @@ def _record_and_close(db, metrics: CrawlMetrics) -> None:
 
 
 if __name__ == "__main__":
-    import sys
     from pipeline.logging_config import setup_logging
     setup_logging()
-    result = run_pipeline()
+    result = run_pipeline(
+        limit_per_source=int(os.getenv("ARTICLES_LIMIT_PER_SOURCE", "50")),
+        classification_threshold=float(os.getenv("CLASSIFICATION_THRESHOLD", "0.75")),
+    )
     print(f"\nPipeline metrics: {result}")

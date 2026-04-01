@@ -13,7 +13,10 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, Generator, List, Optional, Sequence
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -178,11 +181,12 @@ class SQLiteDB:
     # ------------------------------------------------------------------
 
     def init(self) -> None:
-        """Create schema if it does not already exist, then seed categories."""
+        """Create schema if it does not already exist, then seed categories and sources."""
         conn = self.connect()
         conn.executescript(_DDL)
         conn.commit()
         self._seed_categories()
+        self._seed_sources()
         logger.info("Database initialised at %s", self.db_path)
 
     def _seed_categories(self) -> None:
@@ -194,6 +198,35 @@ class SQLiteDB:
             VALUES (?, ?, ?, ?, ?)
             """,
             _CATEGORIES_SEED,
+        )
+        conn.commit()
+
+    def _seed_sources(self) -> None:
+        """Populate sources table from config/sources.yaml if not already present."""
+        config_path = Path(__file__).parent.parent / "config" / "sources.yaml"
+        if not config_path.exists():
+            return
+        with open(config_path) as f:
+            sources = yaml.safe_load(f).get("sources", [])
+        conn = self.connect()
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO sources (source_id, name, domain, rss_url, url, active, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    src.get("source_id"),
+                    src["name"],
+                    src.get("domain"),
+                    src.get("rss_url"),
+                    src.get("url"),
+                    int(bool(src.get("active", True))),
+                    src.get("category"),
+                )
+                for src in sources
+                if src.get("source_id")
+            ],
         )
         conn.commit()
 

@@ -504,3 +504,47 @@ def test_pipeline_error_handling_summarize_failure(
     # Pipeline should not crash; article is stored (with no summary)
     assert result["articles_fetched"] == 1
     assert result["articles_stored"] >= 0  # continues without crashing
+
+
+# ---------------------------------------------------------------------------
+# Issue #16: run_pipeline reads env vars for db_path and pipeline params
+# ---------------------------------------------------------------------------
+
+
+@patch("pipeline.run_pipeline.crawl_all_sources")
+@patch("pipeline.run_pipeline.load_model")
+@patch("enrichment.categorizer.categorize_batch")
+@patch("pipeline.summarizer.summarize")
+def test_pipeline_uses_database_path_env_var(
+    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+):
+    """DATABASE_PATH env var is used when db_path is not passed explicitly."""
+    mock_crawl.return_value = []
+    mock_load_model.return_value = _make_mock_model([])
+
+    from pipeline.run_pipeline import run_pipeline
+
+    with patch.dict(os.environ, {"DATABASE_PATH": temp_db_path}):
+        result = run_pipeline()
+
+    assert result["articles_fetched"] == 0
+
+
+@patch("pipeline.run_pipeline.crawl_all_sources")
+@patch("pipeline.run_pipeline.load_model")
+@patch("enrichment.categorizer.categorize_batch")
+@patch("pipeline.summarizer.summarize")
+def test_pipeline_explicit_db_path_overrides_env(
+    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+):
+    """Explicit db_path argument takes precedence over DATABASE_PATH env var."""
+    mock_crawl.return_value = []
+    mock_load_model.return_value = _make_mock_model([])
+
+    from pipeline.run_pipeline import run_pipeline
+
+    with patch.dict(os.environ, {"DATABASE_PATH": "/nonexistent/path.db"}):
+        # Should use temp_db_path, not the env var path
+        result = run_pipeline(db_path=temp_db_path)
+
+    assert result["articles_fetched"] == 0

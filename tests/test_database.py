@@ -248,7 +248,7 @@ class TestUpsertSource:
         assert count == 2
         rows = db.connect().execute("SELECT source_id FROM sources").fetchall()
         ids = {r["source_id"] for r in rows}
-        assert ids == {"S1", "S2"}
+        assert {"S1", "S2"} <= ids
 
     def test_upsert_sources_updates_existing(self, db):
         db.upsert_sources([_make_source(source_id="S1", name="Old")])
@@ -607,6 +607,53 @@ class TestGetSourceIntId:
     def test_upsert_article_raises_for_unknown_source(self, db):
         with pytest.raises(ValueError, match="unknown_src"):
             db.upsert_article(_make_article(source_id="unknown_src"))
+
+
+# ---------------------------------------------------------------------------
+# Issue #17: seed_sources — sources.yaml seeded on init
+# ---------------------------------------------------------------------------
+
+
+class TestSeedSources:
+    def test_sources_seeded_on_init(self, db):
+        """init() must populate the sources table from sources.yaml."""
+        rows = db.connect().execute("SELECT source_id FROM sources").fetchall()
+        ids = {r["source_id"] for r in rows}
+        # A sample of known source_ids from config/sources.yaml
+        assert "BBCNews" in ids
+        assert "NPRNews" in ids
+        assert "HackerNews" in ids
+
+    def test_seeded_sources_have_required_fields(self, db):
+        row = db.connect().execute(
+            "SELECT * FROM sources WHERE source_id = ?", ("BBCNews",)
+        ).fetchone()
+        assert row is not None
+        assert row["name"] == "BBC News"
+        assert row["rss_url"] is not None
+        assert row["active"] in (0, 1)
+
+    def test_seed_sources_idempotent(self, db):
+        """Calling init() again must not raise or duplicate rows."""
+        db.init()
+        count_before = db.connect().execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+        db.init()
+        count_after = db.connect().execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+        assert count_before == count_after
+
+    def test_seeded_source_id_resolves_to_integer(self, db):
+        """Articles can be inserted using a seeded source_id string."""
+        int_id = db.get_source_int_id("BBCNews")
+        assert isinstance(int_id, int) and int_id > 0
+
+    def test_article_insert_with_seeded_source(self, db):
+        """upsert_article works with source_ids loaded from sources.yaml."""
+        article = _make_article(source_id="BBCNews", url="https://bbc.com/test/1")
+        db.upsert_article(article)
+        row = db.connect().execute(
+            "SELECT title FROM articles WHERE url = ?", ("https://bbc.com/test/1",)
+        ).fetchone()
+        assert row is not None
 
 
 # Allow running directly
