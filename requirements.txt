@@ -16,7 +16,6 @@ numpy==1.24.3
 
 # Async & concurrency
 aiohttp==3.9.1
-asyncio-contextmanager==1.0.0
 
 # Database
 sqlalchemy==2.0.23
