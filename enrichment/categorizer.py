@@ -1,17 +1,17 @@
-"""LLM-based article categorization (Task 4).
+"""Keyword-based article categorization (Task 4).
 
-Uses a zero-shot classification model (facebook/bart-large-mnli) to assign
-articles to one or more predefined categories with confidence scores.
-The model is lazy-loaded on first use and cached for the lifetime of the
-process.  Results are additionally cached in a SQLite table so the same
-title+body pair is never classified twice.
+Assigns articles to one of the predefined categories using keyword matching
+against the title and body text.  No ML models are downloaded or loaded.
+Results are cached in a SQLite table so the same title+body pair is never
+classified twice.
 """
 
 import hashlib
 import json
 import logging
+import re
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -30,32 +30,52 @@ DEFAULT_CATEGORIES: List[str] = [
 ]
 
 # ---------------------------------------------------------------------------
-# Model loading (lazy singleton)
+# Keyword lists per category (lowercase; substring match)
 # ---------------------------------------------------------------------------
 
-_classifier: Optional[Any] = None
+_KEYWORDS: Dict[str, List[str]] = {
+    "Health": [
+        "health", "hospital", "doctor", "medical", "mental", "wellness",
+        "vaccine", "treatment", "disease", "cancer", "therapy", "medicine",
+        "nurse", "patient", "clinic", "surgery", "drug", "pharma",
+    ],
+    "Environment": [
+        "climate", "environment", "carbon", "renewable", "solar", "wind",
+        "ocean", "species", "conservation", "pollution", "green", "forest",
+        "nature", "emission", "biodiversity", "wildlife", "ecosystem",
+        "recycle", "sustainability", "wildfire", "flood",
+    ],
+    "Community": [
+        "community", "volunteer", "charity", "local", "neighbourhood",
+        "neighborhood", "donation", "fundrais", "nonprofit", "non-profit",
+        "support", "neighbour", "neighbor", "grassroots", "initiative",
+        "residents", "civic", "outreach",
+    ],
+    "Science & Tech": [
+        "science", "research", "technology", "artificial intelligence", "ai",
+        "robot", "space", "discovery", "innovation", "engineer", "software",
+        "quantum", "breakthrough", "study", "scientist", "lab", "experiment",
+        "data", "computing", "satellite",
+    ],
+    "Education": [
+        "school", "education", "student", "teacher", "university", "college",
+        "learning", "scholarship", "literacy", "classroom", "curriculum",
+        "academic", "graduate", "professor", "tuition", "library",
+    ],
+    "Sports": [
+        "sport", "team", "champion", "athlete", "game", "tournament",
+        "olympic", "win", "league", "coach", "player", "match", "race",
+        "marathon", "medal", "trophy", "stadium", "fitness",
+    ],
+    "Arts & Culture": [
+        "art", "music", "film", "book", "museum", "culture", "performance",
+        "festival", "theatre", "theater", "creative", "author", "concert",
+        "gallery", "exhibition", "dance", "literature", "poetry", "cinema",
+        "sculpture",
+    ],
+}
 
-
-def _get_classifier() -> Any:
-    """Load and cache the zero-shot classification pipeline."""
-    global _classifier
-    if _classifier is None:
-        from transformers import pipeline  # noqa: import-outside-toplevel
-        logger.info(
-            "Loading zero-shot classification model (facebook/bart-large-mnli)…"
-        )
-        _classifier = pipeline(
-            "zero-shot-classification",
-            model="facebook/bart-large-mnli",
-        )
-        logger.info("Model loaded.")
-    return _classifier
-
-
-def set_classifier(classifier: Any) -> None:
-    """Override the global classifier instance (useful for testing)."""
-    global _classifier
-    _classifier = classifier
+_MAX_BODY_CHARS = 500
 
 
 # ---------------------------------------------------------------------------
@@ -125,14 +145,41 @@ def _cache_set(key: str, result: Dict, conn: sqlite3.Connection) -> None:
 # Text preparation
 # ---------------------------------------------------------------------------
 
-_MAX_BODY_CHARS = 500  # keep inputs short to stay within BART's token limit
-
 
 def _build_input_text(title: str, body: str) -> str:
     """Combine title and (optionally) body into a single classification input."""
     if body:
         return f"{title}. {body[:_MAX_BODY_CHARS]}"
     return title
+
+
+# ---------------------------------------------------------------------------
+# Keyword scoring
+# ---------------------------------------------------------------------------
+
+
+def _score_text(text: str, categories: List[str]) -> Dict[str, float]:
+    """Return a per-category keyword hit count, normalised to [0, 1].
+
+    Each keyword that appears (case-insensitive substring match) contributes
+    one hit to its category.  Scores are normalised so the top category = 1.0
+    when at least one keyword is found; equal weights (1/n) are returned when
+    no keywords match.
+    """
+    lowered = text.lower()
+    hits: Dict[str, int] = {}
+    for cat in categories:
+        keywords = _KEYWORDS.get(cat, [])
+        count = sum(1 for kw in keywords if kw in lowered)
+        hits[cat] = count
+
+    total_hits = sum(hits.values())
+    if total_hits == 0:
+        equal = 1.0 / len(categories) if categories else 0.0
+        return {cat: equal for cat in categories}
+
+    max_hits = max(hits.values())
+    return {cat: hits[cat] / max_hits for cat in categories}
 
 
 # ---------------------------------------------------------------------------
@@ -145,34 +192,22 @@ def categorize_article(
     body: str = "",
     categories: Optional[List[str]] = None,
     _cache: Optional[sqlite3.Connection] = None,
-    _classifier_override: Optional[Any] = None,
 ) -> Dict:
     """Categorize an article into predefined or custom categories.
 
-    Uses multi-label zero-shot classification so an article can belong to
-    more than one category.  Scores are independent probabilities per label
-    (not a softmax distribution), allowing multiple high-confidence hits.
+    Uses keyword matching — no ML model is required.
 
     Args:
         title: Article headline.
         body: Article body text (optional; first 500 chars are used).
         categories: Candidate category labels.  Defaults to DEFAULT_CATEGORIES.
-        _cache: SQLite connection for result caching (tests may pass their own).
-        _classifier_override: Replace the global model (for unit tests).
+        _cache: SQLite connection for result caching.
 
     Returns:
         Dict with keys:
         - ``category`` (str): Highest-scoring label.
-        - ``scores`` (dict): ``{label: confidence}`` for every candidate.
-        - ``confidence`` (float): Confidence of the top category.
-
-    Example::
-
-        >>> result = categorize_article("Scientists unveil carbon-capture plant")
-        >>> result["category"]
-        'Environment & Nature'
-        >>> result["confidence"] > 0.5
-        True
+        - ``scores`` (dict): ``{label: score}`` for every candidate.
+        - ``confidence`` (float): Score of the top category.
     """
     if not title:
         raise ValueError("title must not be empty")
@@ -188,16 +223,10 @@ def categorize_article(
         logger.debug("Cache hit for title=%r", title[:60])
         return cached
 
-    classifier = (
-        _classifier_override if _classifier_override is not None else _get_classifier()
-    )
     text = _build_input_text(title, body)
-
-    output = classifier(text, candidate_labels=categories, multi_label=True)
-
-    scores = dict(zip(output["labels"], output["scores"]))
-    top_category = output["labels"][0]
-    confidence = float(output["scores"][0])
+    scores = _score_text(text, categories)
+    top_category = max(scores, key=lambda c: scores[c])
+    confidence = float(scores[top_category])
 
     result: Dict = {
         "category": top_category,
@@ -213,32 +242,21 @@ def categorize_batch(
     articles: List[Dict],
     categories: Optional[List[str]] = None,
     _cache: Optional[sqlite3.Connection] = None,
-    _classifier_override: Optional[Any] = None,
 ) -> List[Dict]:
     """Categorize multiple articles, enriching each with category metadata.
 
-    Each article dict must contain at least a ``title`` key.  The function
-    adds three new keys to each article:
-
+    Each article dict must contain at least a ``title`` key.  Adds:
     - ``category`` (str): Top predicted category.
-    - ``category_scores`` (dict): Per-label confidence scores.
-    - ``category_confidence`` (float): Confidence of the top category.
+    - ``category_scores`` (dict): Per-label scores.
+    - ``category_confidence`` (float): Score of the top category.
 
     Args:
         articles: List of article dicts (must have ``title``; may have ``body``).
         categories: Candidate category labels.  Defaults to DEFAULT_CATEGORIES.
         _cache: SQLite connection for result caching.
-        _classifier_override: Replace the global model (for unit tests).
 
     Returns:
         New list of article dicts with category fields added.
-
-    Example::
-
-        >>> articles = [{"title": "Local charity feeds 500 families"}]
-        >>> enriched = categorize_batch(articles)
-        >>> "category" in enriched[0]
-        True
     """
     if not articles:
         return []
@@ -267,7 +285,6 @@ def categorize_batch(
             body=body,
             categories=categories,
             _cache=cache,
-            _classifier_override=_classifier_override,
         )
 
         enriched = dict(article)

@@ -1,17 +1,17 @@
-"""Article summarization service (Task 5).
+"""Extractive article summarization (Task 5).
 
-Uses DistilBART (sshleifer/distilbart-cnn-6-6) for fast, on-device summarization.
-The model is lazy-loaded on first use and cached for the lifetime of the process.
-Results are additionally cached in a SQLite table so the same text is never
-summarized twice.
+Returns the first 2–3 sentences of article text up to a character cap.
+No ML models are downloaded or loaded.  Results are cached in a SQLite
+table so the same text is never processed twice.
 """
 
 import asyncio
 import hashlib
 import json
 import logging
+import re
 import sqlite3
-from typing import Any, List, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,37 +19,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODEL_NAME = "sshleifer/distilbart-cnn-6-6"
-
-# DistilBART max input is 1024 tokens (~4 chars/token → ~4000 chars is safe)
-_MAX_INPUT_CHARS = 3800
+_MAX_INPUT_CHARS = 3800   # kept for API compatibility with existing tests
+_MAX_SUMMARY_CHARS = 500  # extractive cap
 
 _DEFAULT_CACHE_PATH = ":memory:"
-
-# ---------------------------------------------------------------------------
-# Model loading (lazy singleton)
-# ---------------------------------------------------------------------------
-
-_summarizer: Optional[Any] = None
-
-
-def _get_summarizer() -> Any:
-    """Load and cache the DistilBART summarization pipeline."""
-    global _summarizer
-    if _summarizer is None:
-        from transformers import pipeline  # noqa: import-outside-toplevel
-
-        logger.info("Loading summarization model (%s)…", _MODEL_NAME)
-        _summarizer = pipeline("summarization", model=_MODEL_NAME)
-        logger.info("Summarization model loaded.")
-    return _summarizer
-
-
-def set_summarizer(summarizer: Any) -> None:
-    """Override the global summarizer instance (useful for testing)."""
-    global _summarizer
-    _summarizer = summarizer
-
 
 # ---------------------------------------------------------------------------
 # SQLite-backed result cache
@@ -108,12 +81,12 @@ def _cache_set(key: str, summary: str, conn: sqlite3.Connection) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Text preparation
+# Text helpers (kept for API compatibility)
 # ---------------------------------------------------------------------------
 
 
 def _truncate_text(text: str) -> str:
-    """Truncate text to fit within the model's max input length."""
+    """Truncate text to _MAX_INPUT_CHARS characters."""
     if len(text) > _MAX_INPUT_CHARS:
         logger.debug("Truncating input from %d to %d chars.", len(text), _MAX_INPUT_CHARS)
         return text[:_MAX_INPUT_CHARS]
@@ -121,13 +94,31 @@ def _truncate_text(text: str) -> str:
 
 
 def _is_too_short(text: str, min_length: int) -> bool:
-    """Return True if text is likely shorter than min_length tokens.
+    """Return True if word count is below min_length."""
+    return len(text.split()) < min_length
 
-    Uses a rough 4-chars-per-token heuristic to avoid model errors when
-    the input is shorter than the requested minimum output length.
-    """
-    estimated_tokens = len(text.split())
-    return estimated_tokens < min_length
+
+# ---------------------------------------------------------------------------
+# Extractive summarization
+# ---------------------------------------------------------------------------
+
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _extract_summary(text: str, max_chars: int = _MAX_SUMMARY_CHARS) -> str:
+    """Return the first sentences of *text* up to *max_chars* characters."""
+    sentences = _SENTENCE_RE.split(text.strip())
+    summary_parts: List[str] = []
+    total = 0
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if total + len(sentence) > max_chars and summary_parts:
+            break
+        summary_parts.append(sentence)
+        total += len(sentence) + 1  # +1 for the space
+    return " ".join(summary_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -140,28 +131,23 @@ def summarize(
     max_length: int = 130,
     min_length: int = 30,
     _cache: Optional[sqlite3.Connection] = None,
-    _summarizer_override: Optional[Any] = None,
 ) -> str:
-    """Generate a summary of article text using DistilBART.
+    """Return an extractive summary of *text*.
+
+    Takes the first 2-3 sentences up to ~500 characters.  Returns the
+    original text unchanged if it is too short to summarize meaningfully.
 
     Args:
         text: Article body (or title + body combined).
-        max_length: Max summary length in tokens (~4 chars/token).
-        min_length: Min summary length in tokens.
-        _cache: SQLite connection for result caching (tests may pass their own).
-        _summarizer_override: Replace the global model (for unit tests).
+        max_length: Ignored (kept for API compatibility).
+        min_length: Word count below which the text is returned as-is.
+        _cache: SQLite connection for result caching.
 
     Returns:
-        Summary string (1-3 sentences). Returns the original text unchanged if
-        it is too short to summarize meaningfully.
+        Summary string.
 
     Raises:
         ValueError: If text is empty.
-
-    Example:
-        >>> summary = summarize("A long article about climate change...")
-        >>> isinstance(summary, str) and len(summary) > 0
-        True
     """
     if not text or not text.strip():
         raise ValueError("text must not be empty")
@@ -175,25 +161,14 @@ def summarize(
         logger.debug("Cache hit for text hash=%s", key[:12])
         return cached
 
-    # Very short texts cannot be summarized to min_length tokens — return as-is.
     if _is_too_short(text, min_length):
-        logger.debug("Text too short to summarize (%d words); returning as-is.", len(text.split()))
+        logger.debug("Text too short (%d words); returning as-is.", len(text.split()))
         _cache_set(key, text, cache)
         return text
 
-    truncated = _truncate_text(text)
-    model = _summarizer_override if _summarizer_override is not None else _get_summarizer()
-
-    output = model(
-        truncated,
-        max_length=max_length,
-        min_length=min_length,
-        do_sample=False,
-    )
-    summary: str = output[0]["summary_text"].strip()
-
+    summary = _extract_summary(text)
     _cache_set(key, summary, cache)
-    logger.debug("Generated summary (%d chars) for text (%d chars).", len(summary), len(text))
+    logger.debug("Extracted summary (%d chars) from text (%d chars).", len(summary), len(text))
     return summary
 
 
@@ -202,30 +177,17 @@ async def summarize_batch(
     batch_size: int = 8,
     max_length: int = 130,
     _cache: Optional[sqlite3.Connection] = None,
-    _summarizer_override: Optional[Any] = None,
 ) -> List[str]:
-    """Generate summaries for multiple texts efficiently.
-
-    Runs the CPU-bound summarization in a thread pool so the event loop
-    stays responsive.  Results are cached so repeated texts are only
-    summarized once.
+    """Generate extractive summaries for multiple texts.
 
     Args:
         texts: List of article bodies.
-        batch_size: Number of texts to process per model call.
-        max_length: Max summary length per article (tokens).
+        batch_size: Ignored (kept for API compatibility).
+        max_length: Ignored (kept for API compatibility).
         _cache: SQLite connection for result caching.
-        _summarizer_override: Replace the global model (for unit tests).
 
     Returns:
         List of summaries in the same order as the input.
-
-    Example:
-        >>> import asyncio
-        >>> texts = ["Article 1 body text...", "Article 2 body text..."]
-        >>> summaries = asyncio.run(summarize_batch(texts, batch_size=2))
-        >>> len(summaries) == 2
-        True
     """
     if not texts:
         return []
@@ -234,12 +196,7 @@ async def summarize_batch(
         results: List[str] = []
         for text in texts:
             try:
-                summary = summarize(
-                    text,
-                    max_length=max_length,
-                    _cache=_cache,
-                    _summarizer_override=_summarizer_override,
-                )
+                summary = summarize(text, max_length=max_length, _cache=_cache)
             except ValueError:
                 logger.warning("Skipping empty text in batch.")
                 summary = ""

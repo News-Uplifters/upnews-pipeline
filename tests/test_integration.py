@@ -2,7 +2,6 @@
 
 Tests the pipeline end-to-end using:
 - Mock RSS feeds (fixture XML files + inline XML)
-- Mock ML models (no GPU/download required)
 - Temporary SQLite databases (cleaned up after each test)
 """
 
@@ -60,7 +59,6 @@ def _make_article(**kwargs):
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
         "published_at": datetime(2026, 3, 26, 10, 0, 0),
-        "uplifting_score": 0.92,
         "category": "Community",
         "summary": "A brave dog saved a child.",
         "thumbnail_url": None,
@@ -69,10 +67,17 @@ def _make_article(**kwargs):
     return defaults
 
 
-def _make_mock_model(scores: list):
-    model = MagicMock()
-    model.predict_proba.return_value = [[1.0 - s, s] for s in scores]
-    return model
+def _seed_source(db_path: str, source_id: str = "TestSource") -> None:
+    """Pre-seed a source row so FK constraints are satisfied during pipeline tests."""
+    db = init_db(db_path)
+    db.upsert_source({
+        "source_id": source_id,
+        "name": "Test Source",
+        "rss_url": "https://example.com/feed.xml",
+        "active": True,
+        "category": "news",
+    })
+    db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -118,8 +123,14 @@ def test_rss_parsing_timeout_handled_gracefully():
 
 
 # ---------------------------------------------------------------------------
-# Classification pipeline integration tests
+# Classification module tests (classifier is standalone; pipeline no longer calls it)
 # ---------------------------------------------------------------------------
+
+
+def _make_mock_model(scores: list):
+    model = MagicMock()
+    model.predict_proba.return_value = [[1.0 - s, s] for s in scores]
+    return model
 
 
 def test_classification_with_known_uplifting_titles():
@@ -238,7 +249,6 @@ def test_database_upsert_updates_existing_article(mem_db):
     mem_db.upsert_articles([article])
     updated = _make_article(url="https://example.com/upsert", title="Updated Title")
     mem_db.upsert_articles([updated])
-    # Confirm only one record exists (no duplicates)
     conn = mem_db.connect()
     row = conn.execute(
         "SELECT title FROM articles WHERE url = ?", ("https://example.com/upsert",)
@@ -263,7 +273,6 @@ def test_database_cleanup_after_test(tmp_path):
     db = init_db(db_path)
     db.close()
     assert os.path.exists(db_path)
-    # tmp_path is automatically removed by pytest — this confirms path was used
 
 
 # ---------------------------------------------------------------------------
@@ -271,48 +280,13 @@ def test_database_cleanup_after_test(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _build_pipeline_mocks(articles, uplifting_scores=None):
-    """Return a dict of patches needed to run the pipeline without I/O."""
-    if uplifting_scores is None:
-        uplifting_scores = [0.90] * len(articles)
-
-    mock_model = _make_mock_model(uplifting_scores)
-
-    def fake_categorize(article_dicts):
-        return [{**a, "category": "Community"} for a in article_dicts]
-
-    def fake_summarize(text):
-        return "A brief summary."
-
-    return {
-        "crawl": articles,
-        "model": mock_model,
-        "categorize": fake_categorize,
-        "summarize": fake_summarize,
-    }
-
-
-def _seed_source(db_path: str, source_id: str = "TestSource") -> None:
-    """Pre-seed a source row so FK constraints are satisfied during pipeline tests."""
-    db = init_db(db_path)
-    db.upsert_source({
-        "source_id": source_id,
-        "name": "Test Source",
-        "rss_url": "https://example.com/feed.xml",
-        "active": True,
-        "category": "news",
-    })
-    db.close()
-
-
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 def test_end_to_end_pipeline_stores_articles(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
-    """Full pipeline: fetch → dedup → classify → categorize → summarize → store."""
+    """Full pipeline: fetch → dedup → categorize → summarize → store."""
     _seed_source(temp_db_path)
     raw_articles = [
         {
@@ -321,7 +295,6 @@ def test_end_to_end_pipeline_stores_articles(
             "rss_link": "https://example.com/dog-saves",
             "source_id": "TestSource",
             "published": datetime(2026, 3, 26, 10, 0, 0),
-            "threshold": 0.75,
         },
         {
             "title": "Volunteer helps elderly",
@@ -329,11 +302,9 @@ def test_end_to_end_pipeline_stores_articles(
             "rss_link": "https://example.com/volunteer",
             "source_id": "TestSource",
             "published": datetime(2026, 3, 26, 9, 0, 0),
-            "threshold": 0.75,
         },
     ]
     mock_crawl.return_value = raw_articles
-    mock_load_model.return_value = _make_mock_model([0.92, 0.88])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "A brief summary."
 
@@ -347,11 +318,10 @@ def test_end_to_end_pipeline_stores_articles(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 def test_pipeline_skips_all_duplicate_articles(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
     """When all fetched articles already exist in DB, pipeline returns early."""
     article = {
@@ -361,13 +331,10 @@ def test_pipeline_skips_all_duplicate_articles(
         "rss_link": "https://example.com/dog-saves",
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
-        "threshold": 0.75,
-        "uplifting_score": 0.92,
         "category": "Community",
         "summary": None,
         "thumbnail_url": None,
     }
-    # Pre-seed DB with the article using the canonical url field
     db = init_db(temp_db_path)
     db.upsert_source({
         "source_id": "TestSource", "name": "Test Source",
@@ -377,7 +344,6 @@ def test_pipeline_skips_all_duplicate_articles(
     db.close()
 
     mock_crawl.return_value = [article]
-    mock_load_model.return_value = _make_mock_model([0.92])
     mock_categorize.side_effect = lambda arts: arts
     mock_summarize.return_value = "Summary."
 
@@ -402,14 +368,12 @@ def test_pipeline_handles_empty_crawl(mock_crawl, temp_db_path):
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
-def test_pipeline_metrics_accuracy(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+def test_pipeline_all_articles_proceed(
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
-    """Pipeline metrics dict reflects actual processing counts."""
-    # 3 articles: 2 uplifting (score>=0.75), 1 not
+    """All fetched articles proceed to store — no filtering by threshold."""
     raw = [
         {
             "title": "Breakthrough in medicine",
@@ -417,7 +381,6 @@ def test_pipeline_metrics_accuracy(
             "rss_link": "https://example.com/med",
             "source_id": "LocalFeed",
             "published": datetime(2026, 3, 26, 10, 0, 0),
-            "threshold": 0.75,
         },
         {
             "title": "Community garden wins award",
@@ -425,7 +388,6 @@ def test_pipeline_metrics_accuracy(
             "rss_link": "https://example.com/garden",
             "source_id": "LocalFeed",
             "published": datetime(2026, 3, 26, 9, 0, 0),
-            "threshold": 0.75,
         },
         {
             "title": "Stock market declines",
@@ -433,13 +395,10 @@ def test_pipeline_metrics_accuracy(
             "rss_link": "https://example.com/stocks",
             "source_id": "LocalFeed",
             "published": datetime(2026, 3, 26, 8, 0, 0),
-            "threshold": 0.75,
         },
     ]
     _seed_source(temp_db_path, source_id="LocalFeed")
     mock_crawl.return_value = raw
-    # First two articles above threshold; third below
-    mock_load_model.return_value = _make_mock_model([0.92, 0.88, 0.20])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "General"} for a in arts]
     mock_summarize.return_value = "Summary."
 
@@ -447,41 +406,15 @@ def test_pipeline_metrics_accuracy(
     result = run_pipeline(db_path=temp_db_path)
 
     assert result["articles_fetched"] == 3
-    assert result["articles_classified"] == 2   # only 2 pass threshold
-    assert result["articles_stored"] == 2
+    assert result["articles_classified"] == 3   # all pass through
+    assert result["articles_stored"] == 3
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
-def test_pipeline_handles_classification_error_gracefully(
-    mock_load_model, mock_crawl, temp_db_path
-):
-    """If classification fails, pipeline returns with 0 classified articles."""
-    mock_crawl.return_value = [
-        {
-            "title": "Good news article",
-            "original_url": "https://example.com/good",
-            "rss_link": "https://example.com/good",
-            "source_id": "TestSource",
-            "published": datetime(2026, 3, 26, 10, 0, 0),
-            "threshold": 0.75,
-        }
-    ]
-    mock_load_model.side_effect = RuntimeError("Model not found")
-
-    from pipeline.run_pipeline import run_pipeline
-    result = run_pipeline(db_path=temp_db_path)
-
-    assert result["articles_fetched"] == 1
-    assert result.get("articles_classified", 0) == 0
-
-
-@patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 def test_pipeline_error_handling_summarize_failure(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
     """If summarization fails for an article, pipeline continues and stores without summary."""
     _seed_source(temp_db_path)
@@ -491,36 +424,31 @@ def test_pipeline_error_handling_summarize_failure(
         "rss_link": "https://example.com/flood",
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
-        "threshold": 0.75,
     }]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.side_effect = ValueError("Summarization failed")
 
     from pipeline.run_pipeline import run_pipeline
     result = run_pipeline(db_path=temp_db_path)
 
-    # Pipeline should not crash; article is stored (with no summary)
     assert result["articles_fetched"] == 1
     assert result["articles_stored"] >= 0  # continues without crashing
 
 
 # ---------------------------------------------------------------------------
-# Issue #16: run_pipeline reads env vars for db_path and pipeline params
+# Issue #16: run_pipeline reads env vars for db_path
 # ---------------------------------------------------------------------------
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 def test_pipeline_uses_database_path_env_var(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
     """DATABASE_PATH env var is used when db_path is not passed explicitly."""
     mock_crawl.return_value = []
-    mock_load_model.return_value = _make_mock_model([])
 
     from pipeline.run_pipeline import run_pipeline
 
@@ -531,20 +459,17 @@ def test_pipeline_uses_database_path_env_var(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 def test_pipeline_explicit_db_path_overrides_env(
-    mock_summarize, mock_categorize, mock_load_model, mock_crawl, temp_db_path
+    mock_summarize, mock_categorize, mock_crawl, temp_db_path
 ):
     """Explicit db_path argument takes precedence over DATABASE_PATH env var."""
     mock_crawl.return_value = []
-    mock_load_model.return_value = _make_mock_model([])
 
     from pipeline.run_pipeline import run_pipeline
 
     with patch.dict(os.environ, {"DATABASE_PATH": "/nonexistent/path.db"}):
-        # Should use temp_db_path, not the env var path
         result = run_pipeline(db_path=temp_db_path)
 
     assert result["articles_fetched"] == 0
