@@ -3,13 +3,12 @@
 Covers:
 - URL/published_at field normalisation in run_pipeline
 - Thumbnail extraction integration in run_pipeline
-- Rule-based classifier fallback (_RuleBasedModel + load_model behaviour)
+- Rule-based classifier module (standalone, not called by the pipeline)
 """
 
 import os
-import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -30,16 +29,9 @@ def _make_article(**kwargs):
         "source_id": "TestSource",
         "published": datetime(2026, 3, 26, 10, 0, 0),
         "published_at": datetime(2026, 3, 26, 10, 0, 0),
-        "threshold": 0.75,
     }
     defaults.update(kwargs)
     return defaults
-
-
-def _make_mock_model(scores: list):
-    model = MagicMock()
-    model.predict_proba.return_value = [[1.0 - s, s] for s in scores]
-    return model
 
 
 def _seed_source(db_path: str, source_id: str = "TestSource") -> None:
@@ -60,12 +52,11 @@ def _seed_source(db_path: str, source_id: str = "TestSource") -> None:
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_url_normalisation_from_original_url(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """Articles using original_url (not url) are stored with the correct URL."""
     db_path = str(tmp_path / "test.db")
@@ -73,10 +64,8 @@ def test_url_normalisation_from_original_url(
 
     raw = [_make_article(original_url="https://example.com/a1")]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.92])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
-    # Return no thumbnails for simplicity
     mock_thumbs.return_value = {}
 
     from pipeline.run_pipeline import run_pipeline
@@ -90,12 +79,11 @@ def test_url_normalisation_from_original_url(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_url_normalisation_prefers_explicit_url(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """When article already has a 'url' key, it is kept as-is."""
     db_path = str(tmp_path / "test.db")
@@ -103,7 +91,6 @@ def test_url_normalisation_prefers_explicit_url(
 
     raw = [_make_article(url="https://example.com/explicit", original_url="https://example.com/should-not-use")]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.92])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
     mock_thumbs.return_value = {}
@@ -119,12 +106,11 @@ def test_url_normalisation_prefers_explicit_url(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_published_at_normalised_from_published(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """Articles with 'published' field have published_at stored correctly."""
     db_path = str(tmp_path / "test.db")
@@ -133,7 +119,6 @@ def test_published_at_normalised_from_published(
 
     raw = [_make_article(original_url="https://example.com/pub-test", published=pub_date)]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
     mock_thumbs.return_value = {}
@@ -153,25 +138,22 @@ def test_published_at_normalised_from_published(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_deduplication_works_with_normalised_url(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """Deduplication correctly recognises already-stored articles via original_url."""
     db_path = str(tmp_path / "test.db")
     _seed_source(db_path)
 
     article = _make_article(original_url="https://example.com/dup")
-    # Pre-seed DB with this URL
     db = init_db(db_path)
     db.upsert_articles([{**article, "url": "https://example.com/dup", "published_at": None}])
     db.close()
 
     mock_crawl.return_value = [article]
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: arts
     mock_summarize.return_value = "Summary."
     mock_thumbs.return_value = {}
@@ -189,12 +171,11 @@ def test_deduplication_works_with_normalised_url(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_thumbnail_extraction_called_during_pipeline(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """extract_thumbnails_batch is called once during a normal pipeline run."""
     db_path = str(tmp_path / "test.db")
@@ -203,7 +184,6 @@ def test_thumbnail_extraction_called_during_pipeline(
     url = "https://example.com/thumb-article"
     raw = [_make_article(original_url=url)]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
     mock_thumbs.return_value = {url: "https://example.com/image.jpg"}
@@ -216,12 +196,11 @@ def test_thumbnail_extraction_called_during_pipeline(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
 def test_thumbnail_stored_in_db(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """Thumbnail URL returned by extract_thumbnails_batch is persisted to DB."""
     db_path = str(tmp_path / "test.db")
@@ -231,7 +210,6 @@ def test_thumbnail_stored_in_db(
     thumb_url = "https://cdn.example.com/thumb.jpg"
     raw = [_make_article(original_url=url)]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
     mock_thumbs.return_value = {url: thumb_url}
@@ -249,12 +227,11 @@ def test_thumbnail_stored_in_db(
 
 
 @patch("pipeline.run_pipeline.crawl_all_sources")
-@patch("pipeline.run_pipeline.load_model")
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch", side_effect=Exception("network down"))
 def test_pipeline_continues_when_thumbnail_extraction_fails(
-    mock_thumbs, mock_summarize, mock_categorize, mock_load_model, mock_crawl, tmp_path
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
     """Pipeline completes and stores articles even if thumbnail extraction throws."""
     db_path = str(tmp_path / "test.db")
@@ -262,20 +239,18 @@ def test_pipeline_continues_when_thumbnail_extraction_fails(
 
     raw = [_make_article(original_url="https://example.com/no-thumb")]
     mock_crawl.return_value = raw
-    mock_load_model.return_value = _make_mock_model([0.90])
     mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
     mock_summarize.return_value = "Summary."
 
     from pipeline.run_pipeline import run_pipeline
     result = run_pipeline(db_path=db_path)
 
-    # Pipeline should not crash; article still stored
     assert result["articles_fetched"] == 1
     assert result["articles_stored"] >= 1
 
 
 # ===========================================================================
-# 3. Rule-based classifier fallback
+# 3. Rule-based classifier module (standalone tests)
 # ===========================================================================
 
 
@@ -351,7 +326,6 @@ def test_rule_based_model_integrates_with_filter_positive_news():
     ]
     df = pd.DataFrame({"title": titles})
     result = filter_positive_news(df, model, threshold=0.5)
-    # Positive article should pass; negative should not
     assert len(result) >= 1
     assert "Rescued dog wins community award" in result["title"].values
 
@@ -360,17 +334,16 @@ def test_rule_based_model_integrates_with_filter_positive_news():
 @patch("enrichment.categorizer.categorize_batch")
 @patch("pipeline.summarizer.summarize")
 @patch("enrichment.thumbnails.extract_thumbnails_batch")
-def test_pipeline_runs_with_rule_based_classifier(
-    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, monkeypatch, tmp_path
+def test_pipeline_runs_with_all_articles(
+    mock_thumbs, mock_summarize, mock_categorize, mock_crawl, tmp_path
 ):
-    """Full pipeline run works with CLASSIFIER_MODE=rules (no SetFit model needed)."""
-    monkeypatch.setenv("CLASSIFIER_MODE", "rules")
+    """Full pipeline run stores all crawled articles regardless of content."""
     db_path = str(tmp_path / "test.db")
     _seed_source(db_path)
 
     raw = [
         _make_article(
-            original_url="https://example.com/rule-based-1",
+            original_url="https://example.com/article-1",
             title="Rescued volunteers win award for helping community",
         )
     ]
@@ -383,5 +356,5 @@ def test_pipeline_runs_with_rule_based_classifier(
     result = run_pipeline(db_path=db_path)
 
     assert result["articles_fetched"] == 1
-    # Rule-based model should classify at least the positively-hinted article
-    assert result.get("articles_classified", 0) >= 0  # may vary based on score
+    assert result["articles_classified"] == 1
+    assert result["articles_stored"] == 1

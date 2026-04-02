@@ -5,18 +5,16 @@ import os
 from datetime import datetime, timezone
 
 from crawler.crawl_all_sources import crawl_all_sources
-from classifier.classify_headlines import filter_positive_news, load_model
 from pipeline.logging_config import CrawlMetrics, get_pipeline_logger, log_article_event
 
 logger = get_pipeline_logger(__name__)
 
 
-def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path=None):
+def run_pipeline(limit_per_source=50, db_path=None):
     """Run the complete pipeline: fetch → classify → enrich → store.
 
     Args:
         limit_per_source: Max articles to fetch per RSS source
-        classification_threshold: Confidence threshold for positive classification
         db_path: Path to the SQLite database file (defaults to DATABASE_PATH env var
                  or "data/upnews.db")
 
@@ -101,38 +99,11 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path=Non
             "articles_classified": 0,
         }
 
-    # Step 3: Classify articles
-    logger.info("Step 3: Classifying articles...")
-    metrics.start_stage("classify")
-    try:
-        model = load_model()
-        import pandas as pd
-        df = pd.DataFrame(articles)
-        classified_df = filter_positive_news(df, model, threshold=classification_threshold)
-        classify_ms = metrics.end_stage("classify")
-        metrics.articles_classified = len(classified_df)
-        logger.info(
-            "classify_complete",
-            extra={
-                "event": "classify_complete",
-                "crawl_id": metrics.crawl_id,
-                "articles_classified": metrics.articles_classified,
-                "articles_total": len(df),
-                "duration_ms": round(classify_ms, 1),
-            },
-        )
-        logger.info("  → Classified %d/%d articles as uplifting", metrics.articles_classified, len(df))
-    except Exception as e:
-        metrics.end_stage("classify")
-        metrics.record_error(f"classification_failed: {e}")
-        logger.error(
-            "classify_error",
-            extra={"event": "classify_error", "crawl_id": metrics.crawl_id, "error": str(e)},
-        )
-        logger.error("Classification failed: %s", e)
-        metrics.finish()
-        _record_and_close(db, metrics)
-        return {"articles_fetched": len(articles), "articles_classified": 0}
+    # Step 3: Pass all articles through (no filtering)
+    import pandas as pd
+    classified_df = pd.DataFrame(articles)
+    metrics.articles_classified = len(classified_df)
+    logger.info("  → %d articles proceeding to enrichment", metrics.articles_classified)
 
     # Step 4: Enrich articles with categories
     logger.info("Step 4: Categorizing articles...")
@@ -336,6 +307,5 @@ if __name__ == "__main__":
     setup_logging()
     result = run_pipeline(
         limit_per_source=int(os.getenv("ARTICLES_LIMIT_PER_SOURCE", "50")),
-        classification_threshold=float(os.getenv("CLASSIFICATION_THRESHOLD", "0.75")),
     )
     print(f"\nPipeline metrics: {result}")
