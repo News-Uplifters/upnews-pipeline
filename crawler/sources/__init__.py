@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 
 
@@ -53,7 +54,12 @@ def get_source_adapter(config: dict) -> "BaseSource":
     from .rss import RSSSource
     from .reddit import RedditSource
 
-    adapter_type = (config.get("adapter") or "rss").lower()
+    # pandas loads missing YAML fields as float NaN, not None.
+    # NaN is truthy so `NaN or "rss"` returns NaN, causing .lower() to fail.
+    adapter_val = config.get("adapter")
+    if not adapter_val or (isinstance(adapter_val, float) and math.isnan(adapter_val)):
+        adapter_val = "rss"
+    adapter_type = str(adapter_val).lower()
 
     registry = {
         "rss": RSSSource,
