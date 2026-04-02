@@ -73,7 +73,7 @@ shell:
 	docker compose run --rm --entrypoint bash pipeline
 
 db:
-	sqlite3 data/articles.db "SELECT id, title, uplifting_score, category, crawled_at FROM articles ORDER BY crawled_at DESC LIMIT 20;"
+	sqlite3 data/upnews.db "SELECT id, title, uplifting_score, category, crawled_at FROM articles ORDER BY crawled_at DESC LIMIT 20;"
 
 stop:
 	docker compose down
