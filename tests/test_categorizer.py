@@ -1,12 +1,7 @@
-"""Unit tests for the article categorization service (Task 4).
-
-All tests mock the zero-shot classifier so the heavy
-`facebook/bart-large-mnli` model is never loaded during CI.
-"""
+"""Unit tests for the keyword-based article categorization service (Task 4)."""
 
 import sqlite3
-from typing import Any, Dict, List
-from unittest.mock import MagicMock
+from typing import List
 
 import pytest
 
@@ -18,9 +13,9 @@ from enrichment.categorizer import (
     _get_cache_connection,
     _make_cache_key,
     _MISS,
+    _score_text,
     categorize_article,
     categorize_batch,
-    set_classifier,
 )
 
 
@@ -30,26 +25,7 @@ from enrichment.categorizer import (
 
 
 def _fresh_cache() -> sqlite3.Connection:
-    """Return a clean in-memory cache DB for each test."""
     return _get_cache_connection(":memory:")
-
-
-def _make_mock_classifier(
-    top_label: str = "Science & Tech",
-    all_labels: List[str] = None,
-    all_scores: List[float] = None,
-) -> MagicMock:
-    """Build a callable mock that mimics the transformers zero-shot pipeline output."""
-    if all_labels is None:
-        all_labels = [top_label] + [
-            c for c in DEFAULT_CATEGORIES if c != top_label
-        ]
-    if all_scores is None:
-        all_scores = [0.95] + [0.05] * (len(all_labels) - 1)
-
-    output = {"labels": all_labels, "scores": all_scores}
-    mock = MagicMock(return_value=output)
-    return mock
 
 
 # ---------------------------------------------------------------------------
@@ -140,116 +116,132 @@ class TestCache:
 
 
 # ---------------------------------------------------------------------------
+# _score_text
+# ---------------------------------------------------------------------------
+
+
+class TestScoreText:
+    def test_returns_score_for_every_category(self):
+        scores = _score_text("Scientists discover new species", DEFAULT_CATEGORIES)
+        assert set(scores.keys()) == set(DEFAULT_CATEGORIES)
+
+    def test_scores_in_zero_one_range(self):
+        scores = _score_text("local charity volunteers help community", DEFAULT_CATEGORIES)
+        for v in scores.values():
+            assert 0.0 <= v <= 1.0
+
+    def test_no_keywords_gives_equal_scores(self):
+        scores = _score_text("blah blah blah", DEFAULT_CATEGORIES)
+        values = list(scores.values())
+        assert all(v == pytest.approx(values[0]) for v in values)
+
+    def test_strong_health_signal(self):
+        scores = _score_text("hospital doctor medical cancer treatment", DEFAULT_CATEGORIES)
+        assert scores["Health"] == pytest.approx(1.0)
+
+    def test_strong_sports_signal(self):
+        scores = _score_text("olympic champion athlete league tournament", DEFAULT_CATEGORIES)
+        assert scores["Sports"] == pytest.approx(1.0)
+
+    def test_custom_categories(self):
+        custom = ["Alpha", "Beta"]
+        scores = _score_text("some text", custom)
+        assert set(scores.keys()) == {"Alpha", "Beta"}
+
+
+# ---------------------------------------------------------------------------
 # categorize_article
 # ---------------------------------------------------------------------------
 
 
 class TestCategorizeArticle:
     def test_returns_top_category(self):
-        mock_clf = _make_mock_classifier("Science & Tech")
         cache = _fresh_cache()
         result = categorize_article(
-            "Scientists invent new battery",
+            "Scientists discover breakthrough in quantum computing research",
             _cache=cache,
-            _classifier_override=mock_clf,
         )
         assert result["category"] == "Science & Tech"
 
     def test_returns_confidence_float(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
-        result = categorize_article("title", _cache=cache, _classifier_override=mock_clf)
+        result = categorize_article("Local school wins education award", _cache=cache)
         assert isinstance(result["confidence"], float)
         assert 0.0 <= result["confidence"] <= 1.0
 
     def test_scores_dict_contains_all_categories(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
         result = categorize_article(
             "title",
             categories=DEFAULT_CATEGORIES,
             _cache=cache,
-            _classifier_override=mock_clf,
         )
         for cat in DEFAULT_CATEGORIES:
             assert cat in result["scores"]
 
     def test_custom_categories_used(self):
-        custom = ["Sports", "Politics", "Entertainment"]
-        labels = custom[:]
-        scores = [0.7, 0.2, 0.1]
-        mock_clf = MagicMock(return_value={"labels": labels, "scores": scores})
+        custom = ["Alpha", "Beta"]
         cache = _fresh_cache()
-        result = categorize_article(
-            "Local team wins championship",
-            categories=custom,
-            _cache=cache,
-            _classifier_override=mock_clf,
-        )
-        assert result["category"] == "Sports"
+        result = categorize_article("some article title", categories=custom, _cache=cache)
         assert set(result["scores"].keys()) == set(custom)
 
-    def test_classifier_called_with_multi_label_true(self):
-        mock_clf = _make_mock_classifier()
+    def test_result_cached_after_first_call(self, monkeypatch):
         cache = _fresh_cache()
-        categorize_article("title", _cache=cache, _classifier_override=mock_clf)
-        _, kwargs = mock_clf.call_args
-        assert kwargs.get("multi_label") is True
+        calls = []
+        original_score = __import__("enrichment.categorizer", fromlist=["_score_text"])._score_text
 
-    def test_body_included_in_classifier_input(self):
-        mock_clf = _make_mock_classifier()
-        cache = _fresh_cache()
-        categorize_article(
-            "title", body="some body text", _cache=cache, _classifier_override=mock_clf
-        )
-        positional_text = mock_clf.call_args[0][0]
-        assert "some body text" in positional_text
+        def counting_score(text, categories):
+            calls.append(1)
+            return original_score(text, categories)
 
-    def test_result_cached_after_first_call(self):
-        mock_clf = _make_mock_classifier()
-        cache = _fresh_cache()
-        categorize_article("title", _cache=cache, _classifier_override=mock_clf)
-        categorize_article("title", _cache=cache, _classifier_override=mock_clf)
-        # Classifier should be called exactly once (second call hits cache)
-        assert mock_clf.call_count == 1
+        monkeypatch.setattr("enrichment.categorizer._score_text", counting_score)
+        categorize_article("unique title abc123", _cache=cache)
+        categorize_article("unique title abc123", _cache=cache)
+        assert len(calls) == 1  # second call hits cache
 
-    def test_cache_hit_skips_classifier(self):
-        mock_clf = _make_mock_classifier()
+    def test_cache_hit_skips_scoring(self):
         cache = _fresh_cache()
         key = _make_cache_key("cached title", "", DEFAULT_CATEGORIES)
         _cache_set(
             key,
-            {"category": "Human Interest", "scores": {}, "confidence": 0.88},
+            {"category": "Community", "scores": {}, "confidence": 0.88},
             cache,
         )
-        result = categorize_article(
-            "cached title", _cache=cache, _classifier_override=mock_clf
-        )
-        assert result["category"] == "Human Interest"
-        mock_clf.assert_not_called()
+        result = categorize_article("cached title", _cache=cache)
+        assert result["category"] == "Community"
 
     def test_empty_title_raises_value_error(self):
         cache = _fresh_cache()
         with pytest.raises(ValueError, match="title must not be empty"):
             categorize_article("", _cache=cache)
 
-    def test_default_categories_used_when_none(self):
-        mock_clf = _make_mock_classifier()
-        cache = _fresh_cache()
-        categorize_article("title", _cache=cache, _classifier_override=mock_clf)
-        _, kwargs = mock_clf.call_args
-        assert kwargs["candidate_labels"] == DEFAULT_CATEGORIES
+    def test_body_included_in_scoring(self):
+        cache1, cache2 = _fresh_cache(), _fresh_cache()
+        # Without sports keywords in body
+        r1 = categorize_article("Breaking news today", _cache=cache1)
+        # With sports keywords in body
+        r2 = categorize_article(
+            "Breaking news today",
+            body="olympic champion athlete wins tournament league match",
+            _cache=cache2,
+        )
+        assert r2["scores"]["Sports"] > r1["scores"]["Sports"]
 
-    def test_multi_label_scores_are_independent(self):
-        """With multi_label=True scores are not forced to sum to 1."""
-        labels = DEFAULT_CATEGORIES
-        scores = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
-        mock_clf = MagicMock(return_value={"labels": labels, "scores": scores})
+    def test_health_article_categorized_correctly(self):
         cache = _fresh_cache()
-        result = categorize_article("title", _cache=cache, _classifier_override=mock_clf)
-        # All scores should be preserved as given (not re-normalised)
-        for cat, expected in zip(labels, scores):
-            assert result["scores"][cat] == pytest.approx(expected)
+        result = categorize_article(
+            "Hospital opens new cancer treatment clinic for patients",
+            _cache=cache,
+        )
+        assert result["category"] == "Health"
+
+    def test_environment_article_categorized_correctly(self):
+        cache = _fresh_cache()
+        result = categorize_article(
+            "Climate change drives new renewable solar energy conservation effort",
+            _cache=cache,
+        )
+        assert result["category"] == "Environment"
 
 
 # ---------------------------------------------------------------------------
@@ -262,15 +254,12 @@ class TestCategorizeBatch:
         assert categorize_batch([]) == []
 
     def test_enriches_each_article(self):
-        mock_clf = _make_mock_classifier("Human Interest")
         cache = _fresh_cache()
         articles = [
-            {"title": "Article 1"},
-            {"title": "Article 2"},
+            {"title": "Scientists announce research breakthrough"},
+            {"title": "Local community volunteers fundraise for charity"},
         ]
-        result = categorize_batch(
-            articles, _cache=cache, _classifier_override=mock_clf
-        )
+        result = categorize_batch(articles, _cache=cache)
         assert len(result) == 2
         for art in result:
             assert "category" in art
@@ -278,126 +267,54 @@ class TestCategorizeBatch:
             assert "category_confidence" in art
 
     def test_original_fields_preserved(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
         articles = [{"title": "Hello", "url": "https://example.com", "source_id": "BBC"}]
-        result = categorize_batch(
-            articles, _cache=cache, _classifier_override=mock_clf
-        )
+        result = categorize_batch(articles, _cache=cache)
         assert result[0]["url"] == "https://example.com"
         assert result[0]["source_id"] == "BBC"
 
-    def test_body_forwarded_to_categorize_article(self):
-        mock_clf = _make_mock_classifier()
-        cache = _fresh_cache()
-        articles = [{"title": "Title", "body": "Some body text"}]
-        categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
-        positional_text = mock_clf.call_args[0][0]
-        assert "Some body text" in positional_text
-
     def test_article_without_body_ok(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
-        result = categorize_batch(
-            [{"title": "No body here"}], _cache=cache, _classifier_override=mock_clf
-        )
+        result = categorize_batch([{"title": "No body here"}], _cache=cache)
         assert result[0]["category"] is not None
 
     def test_article_with_empty_title_handled_gracefully(self):
         cache = _fresh_cache()
-        articles = [{"title": ""}]
-        result = categorize_batch(articles, _cache=cache)
+        result = categorize_batch([{"title": ""}], _cache=cache)
         assert result[0]["category"] is None
         assert result[0]["category_confidence"] == 0.0
 
     def test_custom_categories_forwarded(self):
         custom = ["A", "B"]
-        labels = ["A", "B"]
-        scores = [0.6, 0.4]
-        mock_clf = MagicMock(return_value={"labels": labels, "scores": scores})
         cache = _fresh_cache()
         result = categorize_batch(
-            [{"title": "Test"}],
+            [{"title": "Test article"}],
             categories=custom,
             _cache=cache,
-            _classifier_override=mock_clf,
         )
         assert set(result[0]["category_scores"].keys()) == {"A", "B"}
 
     def test_input_dicts_not_mutated(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
         original = {"title": "Immutable article"}
-        articles = [original]
-        categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
-        assert "category" not in original  # original dict unchanged
+        categorize_batch([original], _cache=cache)
+        assert "category" not in original
 
-    def test_classifier_called_once_per_unique_article(self):
-        mock_clf = _make_mock_classifier()
+    def test_cached_articles_not_rescored(self):
         cache = _fresh_cache()
-        articles = [
-            {"title": "Unique A"},
-            {"title": "Unique B"},
-        ]
-        categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
-        assert mock_clf.call_count == 2
-
-    def test_cached_articles_not_reclassified(self):
-        mock_clf = _make_mock_classifier()
-        cache = _fresh_cache()
-        articles = [{"title": "Repeated"}]
-        # First batch
-        categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
-        # Second batch with same article
-        categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
-        assert mock_clf.call_count == 1  # cached on second run
+        articles = [{"title": "Repeated article about science research"}]
+        categorize_batch(articles, _cache=cache)
+        # Pre-populate cache with different result for the same key
+        key = _make_cache_key("Repeated article about science research", "", DEFAULT_CATEGORIES)
+        _cache_set(key, {"category": "Sports", "scores": {}, "confidence": 0.5}, cache)
+        result2 = categorize_batch(articles, _cache=cache)
+        assert result2[0]["category"] == "Sports"  # came from cache
 
     def test_returns_new_list_not_same_reference(self):
-        mock_clf = _make_mock_classifier()
         cache = _fresh_cache()
         articles = [{"title": "Article"}]
-        result = categorize_batch(articles, _cache=cache, _classifier_override=mock_clf)
+        result = categorize_batch(articles, _cache=cache)
         assert result is not articles
-
-    def test_category_confidence_matches_top_score(self):
-        labels = DEFAULT_CATEGORIES
-        scores = [0.91] + [0.1] * (len(labels) - 1)
-        mock_clf = MagicMock(return_value={"labels": labels, "scores": scores})
-        cache = _fresh_cache()
-        result = categorize_batch(
-            [{"title": "T"}], _cache=cache, _classifier_override=mock_clf
-        )
-        assert result[0]["category_confidence"] == pytest.approx(0.91)
-
-
-# ---------------------------------------------------------------------------
-# set_classifier / global state
-# ---------------------------------------------------------------------------
-
-
-class TestSetClassifier:
-    def test_set_classifier_overrides_global(self, monkeypatch):
-        """set_classifier() replaces the module-level singleton."""
-        import enrichment.categorizer as mod
-
-        mock_clf = _make_mock_classifier("Arts & Culture")
-        set_classifier(mock_clf)
-
-        cache = _fresh_cache()
-        result = categorize_article("Any title", _cache=cache)
-        assert result["category"] == "Arts & Culture"
-        mock_clf.assert_called_once()
-
-        # Restore to None so other tests aren't affected
-        set_classifier(None)
-
-    def test_set_classifier_none_resets_to_lazy_load(self, monkeypatch):
-        """After set_classifier(None), the next call attempts lazy model load."""
-        import enrichment.categorizer as mod
-
-        set_classifier(None)
-        # The global should be None now (model will be lazy-loaded on demand)
-        assert mod._classifier is None
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +342,5 @@ class TestDefaultCategories:
         assert len(DEFAULT_CATEGORIES) == len(set(DEFAULT_CATEGORIES))
 
 
-# Allow running directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

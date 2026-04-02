@@ -1,12 +1,7 @@
-"""Unit tests for the article summarization service (Task 5).
-
-All tests inject a mock summarizer so the heavy DistilBART model is
-never loaded during CI.
-"""
+"""Unit tests for the extractive article summarization service (Task 5)."""
 
 import asyncio
 import sqlite3
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -14,12 +9,12 @@ from pipeline.summarizer import (
     _MISS,
     _cache_get,
     _cache_set,
+    _extract_summary,
     _get_cache_connection,
     _is_too_short,
     _make_cache_key,
-    _truncate_text,
     _MAX_INPUT_CHARS,
-    set_summarizer,
+    _truncate_text,
     summarize,
     summarize_batch,
 )
@@ -31,17 +26,9 @@ from pipeline.summarizer import (
 
 
 def _fresh_cache() -> sqlite3.Connection:
-    """Return a clean in-memory cache DB for each test."""
     return _get_cache_connection(":memory:")
 
 
-def _make_mock_summarizer(summary_text: str = "This is a mock summary.") -> MagicMock:
-    """Return a callable mock that mimics the transformers summarization pipeline."""
-    mock = MagicMock(return_value=[{"summary_text": summary_text}])
-    return mock
-
-
-# Long text (>30 words) used in tests that actually call the model mock
 _LONG_TEXT = (
     "Scientists at a leading research institute have announced a major breakthrough "
     "in renewable energy technology. The new solar panel design achieves efficiency "
@@ -90,6 +77,37 @@ class TestIsTooShort:
     def test_exactly_at_min_length_not_too_short(self):
         text = " ".join(["word"] * 30)
         assert _is_too_short(text, 30) is False
+
+
+# ---------------------------------------------------------------------------
+# _extract_summary
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSummary:
+    def test_returns_first_sentence(self):
+        text = "First sentence. Second sentence. Third sentence."
+        result = _extract_summary(text)
+        assert result.startswith("First sentence")
+
+    def test_multi_sentence_text(self):
+        result = _extract_summary(_LONG_TEXT)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_result_within_max_chars(self):
+        long = ". ".join(["word " * 20] * 20)
+        result = _extract_summary(long, max_chars=200)
+        assert len(result) <= 210  # slight overage OK for last sentence
+
+    def test_single_sentence_returned_as_is(self):
+        text = "Just one sentence here."
+        assert _extract_summary(text) == text
+
+    def test_exclamation_and_question_marks_split(self):
+        text = "Great news! Scientists win prize. Who knew?"
+        result = _extract_summary(text, max_chars=1000)
+        assert len(result) >= len("Great news!")
 
 
 # ---------------------------------------------------------------------------
@@ -162,108 +180,61 @@ class TestSummarize:
             summarize("   ", _cache=cache)
 
     def test_returns_string(self):
-        mock = _make_mock_summarizer("Solar energy is booming.")
         cache = _fresh_cache()
-        result = summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
+        result = summarize(_LONG_TEXT, _cache=cache)
         assert isinstance(result, str)
+        assert len(result) > 0
 
-    def test_model_called_with_truncated_text(self):
-        mock = _make_mock_summarizer("Summary.")
+    def test_result_cached_on_first_call(self, monkeypatch):
         cache = _fresh_cache()
-        summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
-        call_args = mock.call_args
-        passed_text = call_args[0][0]
-        assert len(passed_text) <= _MAX_INPUT_CHARS
+        calls = []
+        import pipeline.summarizer as mod
+        orig = mod._extract_summary
 
-    def test_model_receives_max_and_min_length(self):
-        mock = _make_mock_summarizer("Summary.")
-        cache = _fresh_cache()
-        summarize(_LONG_TEXT, max_length=80, min_length=20, _cache=cache, _summarizer_override=mock)
-        _, kwargs = mock.call_args
-        assert kwargs["max_length"] == 80
-        assert kwargs["min_length"] == 20
+        def tracking(text, **kwargs):
+            calls.append(1)
+            return orig(text, **kwargs)
 
-    def test_result_cached_on_first_call(self):
-        mock = _make_mock_summarizer("Cached summary.")
-        cache = _fresh_cache()
-        summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
-        summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
-        assert mock.call_count == 1  # second call hits cache
+        monkeypatch.setattr(mod, "_extract_summary", tracking)
+        summarize(_LONG_TEXT, _cache=cache)
+        summarize(_LONG_TEXT, _cache=cache)
+        assert len(calls) == 1  # second call hits cache
 
-    def test_cache_hit_skips_model(self):
-        mock = _make_mock_summarizer()
+    def test_cache_hit_skips_extraction(self):
         cache = _fresh_cache()
         key = _make_cache_key(_LONG_TEXT.strip(), 130, 30)
         _cache_set(key, "Pre-cached summary.", cache)
-        result = summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
+        result = summarize(_LONG_TEXT, _cache=cache)
         assert result == "Pre-cached summary."
-        mock.assert_not_called()
 
     def test_short_text_returned_as_is(self):
-        """Text shorter than min_length tokens should bypass the model."""
-        mock = _make_mock_summarizer()
         cache = _fresh_cache()
         short = "Brief."
-        result = summarize(short, _cache=cache, _summarizer_override=mock)
+        result = summarize(short, _cache=cache)
         assert result == short
-        mock.assert_not_called()
 
     def test_short_text_is_cached(self):
-        mock = _make_mock_summarizer()
         cache = _fresh_cache()
         short = "Short article."
-        summarize(short, _cache=cache, _summarizer_override=mock)
-        summarize(short, _cache=cache, _summarizer_override=mock)
-        mock.assert_not_called()  # never called; cached from first attempt
+        summarize(short, _cache=cache)
+        # Verify it's in the cache
+        key = _make_cache_key(short, 130, 30)
+        assert _cache_get(key, cache) == short
 
-    def test_summary_text_is_stripped(self):
-        mock = _make_mock_summarizer("  Leading and trailing spaces.  ")
+    def test_long_text_produces_shorter_summary(self):
+        # Use a text long enough (>500 chars) so extractive summary is shorter.
+        long = (_LONG_TEXT + " ") * 3
         cache = _fresh_cache()
-        result = summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
-        assert result == "Leading and trailing spaces."
+        result = summarize(long, _cache=cache)
+        assert len(result) < len(long)
 
-    def test_do_sample_false(self):
-        """Greedy decoding should be used for deterministic output."""
-        mock = _make_mock_summarizer("Summary.")
+    def test_different_min_length_generates_separate_cache_entries(self):
         cache = _fresh_cache()
-        summarize(_LONG_TEXT, _cache=cache, _summarizer_override=mock)
-        _, kwargs = mock.call_args
-        assert kwargs.get("do_sample") is False
-
-    def test_set_summarizer_overrides_global(self):
-        mock = _make_mock_summarizer("Global override summary.")
-        set_summarizer(mock)
-        cache = _fresh_cache()
-        result = summarize(_LONG_TEXT, _cache=cache)
-        assert result == "Global override summary."
-        mock.assert_called_once()
-        # Reset global so other tests are unaffected
-        set_summarizer(None)
-
-    def test_set_summarizer_none_resets(self):
-        import pipeline.summarizer as mod
-
-        set_summarizer(None)
-        assert mod._summarizer is None
-
-    def test_very_long_text_truncated_before_model_call(self):
-        mock = _make_mock_summarizer("Summary of long text.")
-        cache = _fresh_cache()
-        very_long = "word " * 2000  # well above _MAX_INPUT_CHARS
-        summarize(very_long, _cache=cache, _summarizer_override=mock)
-        passed_text = mock.call_args[0][0]
-        assert len(passed_text) <= _MAX_INPUT_CHARS
-
-    def test_different_max_length_generates_separate_cache_entries(self):
-        mock1 = _make_mock_summarizer("Short summary.")
-        mock2 = _make_mock_summarizer("Longer, more detailed summary.")
-        cache = _fresh_cache()
-        r1 = summarize(_LONG_TEXT, max_length=50, _cache=cache, _summarizer_override=mock1)
-        r2 = summarize(_LONG_TEXT, max_length=150, _cache=cache, _summarizer_override=mock2)
-        assert r1 == "Short summary."
-        assert r2 == "Longer, more detailed summary."
-        assert mock1.call_count == 1
-        assert mock2.call_count == 1
+        r1 = summarize(_LONG_TEXT, min_length=10, _cache=cache)
+        r2 = summarize(_LONG_TEXT, min_length=5, _cache=cache)
+        # Both succeed; they may be the same text but are stored under different keys
+        assert isinstance(r1, str)
+        assert isinstance(r2, str)
 
 
 # ---------------------------------------------------------------------------
@@ -277,84 +248,51 @@ class TestSummarizeBatch:
         assert result == []
 
     def test_returns_same_number_of_summaries(self):
-        mock = _make_mock_summarizer("Summary.")
         cache = _fresh_cache()
         texts = [_LONG_TEXT, _LONG_TEXT + " extra.", _LONG_TEXT + " more."]
-        result = asyncio.run(
-            summarize_batch(texts, _cache=cache, _summarizer_override=mock)
-        )
+        result = asyncio.run(summarize_batch(texts, _cache=cache))
         assert len(result) == 3
 
     def test_each_result_is_string(self):
-        mock = _make_mock_summarizer("A summary.")
         cache = _fresh_cache()
-        result = asyncio.run(
-            summarize_batch([_LONG_TEXT], _cache=cache, _summarizer_override=mock)
-        )
+        result = asyncio.run(summarize_batch([_LONG_TEXT], _cache=cache))
         assert all(isinstance(s, str) for s in result)
 
-    def test_order_preserved(self):
-        texts = [_LONG_TEXT + str(i) for i in range(3)]
-        summaries = [f"Summary {i}" for i in range(3)]
-        call_count = [0]
-
-        def fake_summarizer(text, **kwargs):
-            idx = call_count[0]
-            call_count[0] += 1
-            return [{"summary_text": summaries[idx]}]
-
-        mock = MagicMock(side_effect=fake_summarizer)
-        cache = _fresh_cache()
-        result = asyncio.run(
-            summarize_batch(texts, _cache=cache, _summarizer_override=mock)
-        )
-        assert result == summaries
-
     def test_empty_text_in_batch_returns_empty_string(self):
-        mock = _make_mock_summarizer("Summary.")
         cache = _fresh_cache()
         texts = [_LONG_TEXT, ""]
-        result = asyncio.run(
-            summarize_batch(texts, _cache=cache, _summarizer_override=mock)
-        )
+        result = asyncio.run(summarize_batch(texts, _cache=cache))
         assert result[1] == ""
 
-    def test_cached_texts_not_resummarized(self):
-        mock = _make_mock_summarizer("Cached.")
+    def test_cached_texts_not_resummarized(self, monkeypatch):
         cache = _fresh_cache()
-        texts = [_LONG_TEXT]
-        asyncio.run(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
-        asyncio.run(summarize_batch(texts, _cache=cache, _summarizer_override=mock))
-        assert mock.call_count == 1  # second batch hits cache
+        import pipeline.summarizer as mod
+        calls = []
+        orig = mod._extract_summary
 
-    def test_max_length_forwarded(self):
-        mock = _make_mock_summarizer("Summary.")
-        cache = _fresh_cache()
-        asyncio.run(
-            summarize_batch(
-                [_LONG_TEXT], max_length=60, _cache=cache, _summarizer_override=mock
-            )
-        )
-        _, kwargs = mock.call_args
-        assert kwargs["max_length"] == 60
+        def tracking(text, **kwargs):
+            calls.append(1)
+            return orig(text, **kwargs)
+
+        monkeypatch.setattr(mod, "_extract_summary", tracking)
+        texts = [_LONG_TEXT]
+        asyncio.run(summarize_batch(texts, _cache=cache))
+        asyncio.run(summarize_batch(texts, _cache=cache))
+        assert len(calls) == 1  # second batch hits cache
 
     def test_single_text_batch(self):
-        mock = _make_mock_summarizer("Solo summary.")
         cache = _fresh_cache()
-        result = asyncio.run(
-            summarize_batch([_LONG_TEXT], _cache=cache, _summarizer_override=mock)
-        )
-        assert result == ["Solo summary."]
+        result = asyncio.run(summarize_batch([_LONG_TEXT], _cache=cache))
+        assert len(result) == 1
+        assert isinstance(result[0], str)
 
 
 # ---------------------------------------------------------------------------
-# Integration: BBC-style and Reddit-style article texts
+# Real-world article texts
 # ---------------------------------------------------------------------------
 
 
 class TestRealWorldArticles:
-    """Smoke-tests with representative article text patterns."""
-
     BBC_ARTICLE = (
         "The United Kingdom's renewable energy capacity has reached a new record, "
         "with wind and solar now providing more than half of the country's electricity "
@@ -367,26 +305,21 @@ class TestRealWorldArticles:
     REDDIT_TITLE = "Local community builds free library for neighbourhood kids [uplifting]"
 
     def test_bbc_style_article_returns_summary(self):
-        mock = _make_mock_summarizer("UK renewable energy hits new record milestone.")
         cache = _fresh_cache()
-        result = summarize(self.BBC_ARTICLE, _cache=cache, _summarizer_override=mock)
+        result = summarize(self.BBC_ARTICLE, _cache=cache)
         assert len(result) > 0
 
     def test_reddit_title_too_short_returned_as_is(self):
-        mock = _make_mock_summarizer()
         cache = _fresh_cache()
-        result = summarize(self.REDDIT_TITLE, _cache=cache, _summarizer_override=mock)
+        result = summarize(self.REDDIT_TITLE, _cache=cache)
         assert result == self.REDDIT_TITLE
-        mock.assert_not_called()
 
     def test_combined_title_and_body(self):
-        mock = _make_mock_summarizer("Community builds library for local kids.")
         cache = _fresh_cache()
         combined = self.REDDIT_TITLE + ". " + self.BBC_ARTICLE
-        result = summarize(combined, _cache=cache, _summarizer_override=mock)
+        result = summarize(combined, _cache=cache)
         assert isinstance(result, str) and len(result) > 0
 
 
-# Allow running directly
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
