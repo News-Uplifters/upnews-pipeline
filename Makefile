@@ -53,6 +53,9 @@ build-prod:
 logs:
 	docker compose logs -f
 
+install-dev:
+	pip install -r requirements.txt -r requirements-dev.txt
+
 shell:
 	docker compose run --rm --entrypoint bash pipeline
 
