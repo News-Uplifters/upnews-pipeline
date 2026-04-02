@@ -113,7 +113,8 @@ git clone https://github.com/News-Uplifters/upnews-pipeline.git
 cd upnews-pipeline
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # production deps
+pip install -r requirements-dev.txt     # testing + linting (optional)
 ```
 
 ### ML Model Setup
@@ -292,7 +293,7 @@ python -c "from crawler.rss_reader import fetch_rss_headlines; import json; prin
 sqlite3 data/articles.db "SELECT title, uplifting_score, category FROM articles ORDER BY crawled_at DESC LIMIT 10;"
 
 # View crawl history
-sqlite3 data/articles.db "SELECT crawl_start, articles_fetched, articles_stored FROM crawl_metrics ORDER BY crawl_start DESC LIMIT 5;"
+sqlite3 data/upnews.db "SELECT crawl_start, articles_fetched, articles_stored FROM crawl_metrics ORDER BY crawl_start DESC LIMIT 5;"
 ```
 
 ## Database Schema

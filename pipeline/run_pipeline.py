@@ -247,7 +247,7 @@ def run_pipeline(limit_per_source=50, classification_threshold=0.75, db_path=Non
         import pandas as pd  # noqa: import-outside-toplevel
         summarized_df = pd.DataFrame(summarized)
         sum_ms = metrics.end_stage("summarize")
-        summaries_generated = int(summarized_df["summary"].notna().sum())
+        summaries_generated = int(summarized_df["summary"].notna().sum()) if "summary" in summarized_df.columns else 0
         metrics.articles_summarized = summaries_generated
         logger.info(
             "summarize_complete",

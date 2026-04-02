@@ -1,42 +1,33 @@
-# Core dependencies
+# ── Crawler ───────────────────────────────────────────────────────────────────
 feedparser==6.0.10
 requests==2.31.0
 beautifulsoup4==4.12.2
-lxml==4.9.3
+# lxml removed: all BeautifulSoup calls use the built-in html.parser
 
-# Data processing
+# ── Data processing ───────────────────────────────────────────────────────────
 pandas==2.1.3
 pyyaml==6.0.1
 
-# ML & NLP
-setfit==0.7.0
+# ── ML & NLP ─────────────────────────────────────────────────────────────────
+# transformers + torch power categorizer (facebook/bart-large-mnli)
+# and summarizer (sshleifer/distilbart-cnn-6-6)
 transformers==4.36.2
 torch>=2.0.0
-numpy==1.24.3
+# numpy omitted: transitive dep of torch/pandas, no need to pin explicitly
+# setfit omitted: only used when CLASSIFIER_MODE=setfit AND model weights exist
+#   in models/setfit_uplifting_model/. Pipeline defaults to rule-based classifier.
+#   Install manually if needed: pip install setfit==0.7.0
 
-# Async & concurrency
+# ── Async & networking ────────────────────────────────────────────────────────
 aiohttp==3.9.1
+# asyncio-contextmanager omitted: not imported anywhere in the codebase
 
-# Database
-sqlalchemy==2.0.23
+# ── Database ──────────────────────────────────────────────────────────────────
+# sqlalchemy omitted: pipeline uses stdlib sqlite3 directly
 
-# Testing
-pytest==7.4.3
-pytest-cov==4.1.0
-pytest-asyncio==0.21.1
-responses==0.14.0
-
-# Code quality
-black==23.12.0
-isort==5.13.2
-flake8==6.1.0
-mypy==1.7.1
-
-# Logging & monitoring
+# ── Logging ───────────────────────────────────────────────────────────────────
 python-json-logger==2.0.7
 
-# Optional: Claude API (for summary generation fallback)
-# anthropic==0.7.6
-
-# Optional: Redis (for caching thumbnails, summaries, categories)
-# redis==5.0.1
+# ── Optional integrations ─────────────────────────────────────────────────────
+# anthropic>=0.20.0   # enable claude-haiku summarization/categorization
+# redis>=5.0.1        # persistent thumbnail/summary result caching

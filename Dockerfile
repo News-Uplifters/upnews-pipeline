@@ -4,11 +4,9 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# System build deps (needed for lxml, aiohttp, etc.)
+# build-essential needed for aiohttp C-extensions; lxml/libxml2 removed
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libxml2-dev \
-    libxslt-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -20,10 +18,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Runtime system libs (lxml needs libxml2/libxslt at runtime too)
+# sqlite3 CLI for debugging; libxml2/libxslt removed (lxml not used)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxml2 \
-    libxslt1.1 \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 

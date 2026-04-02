@@ -53,11 +53,27 @@ build-prod:
 logs:
 	docker compose logs -f
 
+install:
+	python3 -m venv venv
+	venv/bin/pip install --upgrade pip
+	venv/bin/pip install -r requirements.txt
+
+install-dev:
+	python3 -m venv venv
+	venv/bin/pip install --upgrade pip
+	venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+
+run:
+	venv/bin/python -m pipeline.run_pipeline
+
+test:
+	venv/bin/pytest tests/ -v --tb=short
+
 shell:
 	docker compose run --rm --entrypoint bash pipeline
 
 db:
-	sqlite3 data/articles.db "SELECT id, title, uplifting_score, category, crawled_at FROM articles ORDER BY crawled_at DESC LIMIT 20;"
+	sqlite3 data/upnews.db "SELECT id, title, uplifting_score, category, crawled_at FROM articles ORDER BY crawled_at DESC LIMIT 20;"
 
 stop:
 	docker compose down
