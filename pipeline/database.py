@@ -10,6 +10,7 @@ Provides:
 """
 
 import logging
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -51,12 +52,38 @@ CREATE TABLE IF NOT EXISTS articles (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     title            TEXT NOT NULL,
     url              TEXT NOT NULL UNIQUE,
+    source_url       TEXT,
+    external_url     TEXT,
     content          TEXT,
     summary          TEXT,
     thumbnail_url    TEXT,
     category         TEXT,
+    category_confidence REAL,
+    category_scores  TEXT,
     source_id        INTEGER NOT NULL,
     uplifting_score  REAL,
+    published_at     DATETIME,
+    crawled_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_id) REFERENCES sources(id)
+);
+
+CREATE TABLE IF NOT EXISTS crawled_articles (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    title            TEXT NOT NULL,
+    url              TEXT NOT NULL UNIQUE,
+    source_url       TEXT,
+    external_url     TEXT,
+    content          TEXT,
+    summary          TEXT,
+    thumbnail_url    TEXT,
+    category         TEXT,
+    category_confidence REAL,
+    category_scores  TEXT,
+    source_id        INTEGER NOT NULL,
+    uplifting_score  REAL,
+    is_uplifting     INTEGER,
     published_at     DATETIME,
     crawled_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -89,6 +116,11 @@ CREATE INDEX IF NOT EXISTS idx_articles_published    ON articles(published_at);
 CREATE INDEX IF NOT EXISTS idx_articles_score        ON articles(uplifting_score);
 CREATE INDEX IF NOT EXISTS idx_articles_category     ON articles(category);
 CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at);
+CREATE INDEX IF NOT EXISTS idx_crawled_articles_source       ON crawled_articles(source_id);
+CREATE INDEX IF NOT EXISTS idx_crawled_articles_published    ON crawled_articles(published_at);
+CREATE INDEX IF NOT EXISTS idx_crawled_articles_score        ON crawled_articles(uplifting_score);
+CREATE INDEX IF NOT EXISTS idx_crawled_articles_category     ON crawled_articles(category);
+CREATE INDEX IF NOT EXISTS idx_crawled_articles_published_at ON crawled_articles(published_at);
 CREATE INDEX IF NOT EXISTS idx_bookmarks_session_uuid ON bookmarks(session_uuid);
 """
 
@@ -185,9 +217,30 @@ class SQLiteDB:
         conn = self.connect()
         conn.executescript(_DDL)
         conn.commit()
+        self._migrate_schema()
         self._seed_categories()
         self._seed_sources()
         logger.info("Database initialised at %s", self.db_path)
+
+    def _migrate_schema(self) -> None:
+        """Add any newer article columns to existing databases."""
+        conn = self.connect()
+        for table_name in ("articles", "crawled_articles"):
+            existing_columns = {
+                row["name"]
+                for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            }
+            for column_name, column_type in (
+                ("source_url", "TEXT"),
+                ("external_url", "TEXT"),
+                ("category_confidence", "REAL"),
+                ("category_scores", "TEXT"),
+            ):
+                if column_name not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                    )
+        conn.commit()
 
     def _seed_categories(self) -> None:
         """Populate default categories if they don't already exist."""
@@ -342,38 +395,7 @@ class SQLiteDB:
 
         The string ``source_id`` is resolved to an integer FK automatically.
         """
-        str_key = article.get("source_id", "")
-        int_id = self.get_source_int_id(str_key)
-        if int_id is None:
-            raise ValueError(
-                f"source_id {str_key!r} not found in sources table — "
-                "call upsert_source() first."
-            )
-        row = _article_to_row(article)
-        row["source_id"] = int_id
-        conn = self.connect()
-        conn.execute(
-            """
-            INSERT INTO articles
-                (title, url, content, summary, thumbnail_url, category,
-                 source_id, uplifting_score, published_at, crawled_at, updated_at)
-            VALUES
-                (:title, :url, :content, :summary, :thumbnail_url, :category,
-                 :source_id, :uplifting_score, :published_at, :crawled_at, :updated_at)
-            ON CONFLICT(url) DO UPDATE SET
-                title           = excluded.title,
-                content         = excluded.content,
-                summary         = excluded.summary,
-                thumbnail_url   = excluded.thumbnail_url,
-                category        = excluded.category,
-                uplifting_score = excluded.uplifting_score,
-                published_at    = excluded.published_at,
-                crawled_at      = excluded.crawled_at,
-                updated_at      = excluded.updated_at
-            """,
-            row,
-        )
-        conn.commit()
+        self._upsert_articles_into_table("articles", [article], include_is_uplifting=False)
 
     def upsert_articles(self, articles: Sequence[Dict]) -> int:
         """Bulk upsert a list of article dicts inside a single transaction.
@@ -389,57 +411,27 @@ class SQLiteDB:
             ValueError: If a source_id string cannot be resolved to an integer id.
             sqlite3.Error: On any database error; the transaction is rolled back.
         """
-        if not articles:
-            return 0
+        return self._upsert_articles_into_table("articles", articles, include_is_uplifting=False)
 
-        # Bulk-resolve string source keys → integer ids
-        source_keys = list({a.get("source_id", "") for a in articles if a.get("source_id")})
-        source_id_map = self.get_source_int_id_map(source_keys)
-
-        rows = []
-        for a in articles:
-            str_key = a.get("source_id", "")
-            int_id = source_id_map.get(str_key)
-            if int_id is None:
-                raise ValueError(
-                    f"source_id {str_key!r} not found in sources table — "
-                    "call upsert_source() first."
-                )
-            row = _article_to_row(a)
-            row["source_id"] = int_id
-            rows.append(row)
-
-        with self.transaction() as conn:
-            cursor = conn.executemany(
-                """
-                INSERT INTO articles
-                    (title, url, content, summary, thumbnail_url, category,
-                     source_id, uplifting_score, published_at, crawled_at, updated_at)
-                VALUES
-                    (:title, :url, :content, :summary, :thumbnail_url, :category,
-                     :source_id, :uplifting_score, :published_at, :crawled_at, :updated_at)
-                ON CONFLICT(url) DO UPDATE SET
-                    title           = excluded.title,
-                    content         = excluded.content,
-                    summary         = excluded.summary,
-                    thumbnail_url   = excluded.thumbnail_url,
-                    category        = excluded.category,
-                    uplifting_score = excluded.uplifting_score,
-                    published_at    = excluded.published_at,
-                    crawled_at      = excluded.crawled_at,
-                    updated_at      = excluded.updated_at
-                """,
-                rows,
-            )
-        count = cursor.rowcount
-        logger.info("Upserted %d articles into %s", count, self.db_path)
-        return count
+    def upsert_crawled_articles(self, articles: Sequence[Dict]) -> int:
+        """Bulk upsert raw crawled articles into ``crawled_articles``."""
+        return self._upsert_articles_into_table("crawled_articles", articles, include_is_uplifting=True)
 
     def article_exists(self, url: str) -> bool:
         """Return True if an article with the given URL is in the DB."""
         conn = self.connect()
         row = conn.execute(
-            "SELECT 1 FROM articles WHERE url = ? LIMIT 1", (url,)
+            """
+            SELECT 1
+            FROM (
+                SELECT url FROM crawled_articles
+                UNION
+                SELECT url FROM articles
+            )
+            WHERE url = ?
+            LIMIT 1
+            """,
+            (url,),
         ).fetchone()
         return row is not None
 
@@ -450,10 +442,27 @@ class SQLiteDB:
         conn = self.connect()
         placeholders = ",".join("?" * len(urls))
         rows = conn.execute(
-            f"SELECT url FROM articles WHERE url IN ({placeholders})",
-            list(urls),
+            f"""
+            SELECT url FROM crawled_articles WHERE url IN ({placeholders})
+            UNION
+            SELECT url FROM articles WHERE url IN ({placeholders})
+            """,
+            list(urls) + list(urls),
         ).fetchall()
         return {row["url"] for row in rows}
+
+    def purge_non_uplifting_articles(self, threshold: float = 0.75) -> int:
+        """Remove non-uplifting rows from the final ``articles`` table."""
+        conn = self.connect()
+        cursor = conn.execute(
+            """
+            DELETE FROM articles
+            WHERE uplifting_score IS NULL OR uplifting_score < ?
+            """,
+            (threshold,),
+        )
+        conn.commit()
+        return cursor.rowcount
 
     # ------------------------------------------------------------------
     # Crawl metrics
@@ -491,6 +500,103 @@ class SQLiteDB:
         )
         conn.commit()
         return cursor.lastrowid
+
+    # ------------------------------------------------------------------
+    # Internal bulk writer
+    # ------------------------------------------------------------------
+
+    def _upsert_articles_into_table(
+        self,
+        table_name: str,
+        articles: Sequence[Dict],
+        include_is_uplifting: bool,
+    ) -> int:
+        """Generic bulk upsert helper for article tables."""
+        if not articles:
+            return 0
+
+        source_keys = list({a.get("source_id", "") for a in articles if a.get("source_id")})
+        source_id_map = self.get_source_int_id_map(source_keys)
+
+        rows = []
+        for a in articles:
+            str_key = a.get("source_id", "")
+            int_id = source_id_map.get(str_key)
+            if int_id is None:
+                raise ValueError(
+                    f"source_id {str_key!r} not found in sources table — "
+                    "call upsert_source() first."
+                )
+            row = _article_to_row(a)
+            row["source_id"] = int_id
+            if include_is_uplifting:
+                uplift_flag = row.get("is_uplifting")
+                if uplift_flag is None:
+                    uplift_flag = a.get("is_uplifting")
+                if uplift_flag is None and row.get("uplifting_score") is not None:
+                    uplift_flag = float(row["uplifting_score"]) >= 0.75
+                row["is_uplifting"] = int(bool(uplift_flag))
+            rows.append(row)
+
+        if table_name == "crawled_articles":
+            insert_sql = """
+                INSERT INTO crawled_articles
+                    (title, url, source_url, external_url, content, summary, thumbnail_url, category,
+                     category_confidence, category_scores,
+                     source_id, uplifting_score, is_uplifting, published_at,
+                     crawled_at, updated_at)
+                VALUES
+                    (:title, :url, :source_url, :external_url, :content, :summary, :thumbnail_url, :category,
+                     :category_confidence, :category_scores,
+                     :source_id, :uplifting_score, :is_uplifting, :published_at,
+                     :crawled_at, :updated_at)
+                ON CONFLICT(url) DO UPDATE SET
+                    title           = excluded.title,
+                    source_url      = excluded.source_url,
+                    external_url    = excluded.external_url,
+                    content         = excluded.content,
+                    summary         = excluded.summary,
+                    thumbnail_url   = excluded.thumbnail_url,
+                    category        = excluded.category,
+                    category_confidence = excluded.category_confidence,
+                    category_scores = excluded.category_scores,
+                    uplifting_score = excluded.uplifting_score,
+                    is_uplifting    = excluded.is_uplifting,
+                    published_at    = excluded.published_at,
+                    crawled_at      = excluded.crawled_at,
+                    updated_at      = excluded.updated_at
+            """
+        else:
+            insert_sql = """
+                INSERT INTO articles
+                    (title, url, source_url, external_url, content, summary, thumbnail_url, category,
+                     category_confidence, category_scores,
+                     source_id, uplifting_score, published_at, crawled_at, updated_at)
+                VALUES
+                    (:title, :url, :source_url, :external_url, :content, :summary, :thumbnail_url, :category,
+                     :category_confidence, :category_scores,
+                     :source_id, :uplifting_score, :published_at, :crawled_at, :updated_at)
+                ON CONFLICT(url) DO UPDATE SET
+                    title           = excluded.title,
+                    source_url      = excluded.source_url,
+                    external_url    = excluded.external_url,
+                    content         = excluded.content,
+                    summary         = excluded.summary,
+                    thumbnail_url   = excluded.thumbnail_url,
+                    category        = excluded.category,
+                    category_confidence = excluded.category_confidence,
+                    category_scores = excluded.category_scores,
+                    uplifting_score = excluded.uplifting_score,
+                    published_at    = excluded.published_at,
+                    crawled_at      = excluded.crawled_at,
+                    updated_at      = excluded.updated_at
+            """
+
+        with self.transaction() as conn:
+            cursor = conn.executemany(insert_sql, rows)
+        count = cursor.rowcount
+        logger.info("Upserted %d articles into %s", count, table_name)
+        return count
 
 
 # ---------------------------------------------------------------------------
@@ -530,16 +636,26 @@ def _article_to_row(article: Dict) -> Dict:
     ``source_id`` is left as-is here (string); callers must replace it with
     the resolved integer id before executing SQL.
     """
+    external_url = article.get("external_url") if "external_url" in article else None
+    source_url = external_url or article.get("source_url")
+    if source_url is None:
+        source_url = article.get("rss_link") or article.get("url")
+
     return {
         "title":          article.get("title", ""),
         "url":            article.get("url") or article.get("original_url", ""),
+        "source_url":     source_url,
+        "external_url":   external_url,
         # Support both 'content' (new) and 'body' (legacy crawler field)
         "content":        article.get("content") or article.get("body"),
         "summary":        article.get("summary"),
         "thumbnail_url":  article.get("thumbnail_url"),
         "category":       _category_to_slug(article.get("category")),
+        "category_confidence": article.get("category_confidence"),
+        "category_scores": json.dumps(article.get("category_scores")) if isinstance(article.get("category_scores"), dict) else article.get("category_scores"),
         "source_id":      article.get("source_id", ""),  # replaced by caller
         "uplifting_score": article.get("uplifting_score"),
+        "is_uplifting":   article.get("is_uplifting"),
         "published_at":   _coerce_dt(article.get("published_at")),
         "crawled_at":     _fmt_dt(datetime.now(timezone.utc)),
         "updated_at":     _fmt_dt(datetime.now(timezone.utc)),
@@ -547,13 +663,44 @@ def _article_to_row(article: Dict) -> Dict:
 
 
 def _category_to_slug(category: Optional[str]) -> Optional[str]:
-    """Convert a human-readable category name to its URL slug."""
+    """Normalize a category to the canonical API/frontend display name.
+
+    The helper name is kept for backwards compatibility, but the pipeline now
+    stores the same human-readable labels that the API seeds and frontend show.
+    """
     if not category:
         return None
-    return _CATEGORY_SLUG_MAP.get(
-        category,
-        category.lower().replace(" & ", "-").replace(" ", "-"),
-    )
+
+    canonical_map = {
+        # Current names
+        "Science & Tech": "Science & Tech",
+        "Health": "Health",
+        "Environment": "Environment",
+        "Community": "Community",
+        "Education": "Education",
+        "Sports": "Sports",
+        "Arts & Culture": "Arts & Culture",
+        # Slugs from older runs
+        "science-tech": "Science & Tech",
+        "health": "Health",
+        "environment": "Environment",
+        "community": "Community",
+        "education": "Education",
+        "sports": "Sports",
+        "arts-culture": "Arts & Culture",
+        # Legacy labels from earlier iterations
+        "Health & Wellness": "Health",
+        "Environment & Nature": "Environment",
+        "Community & Social Good": "Community",
+        "Technology & Science": "Science & Tech",
+        "Business & Economics": "Science & Tech",
+        "Culture & Arts": "Arts & Culture",
+        "Human Interest": "Community",
+    }
+
+    if category in canonical_map:
+        return canonical_map[category]
+    return category
 
 
 def _coerce_dt(value) -> Optional[str]:

@@ -20,6 +20,9 @@ env/
 
 # Test artifacts
 .pytest_cache/
+.pytest_tmp/
+.pytest_tmp_test/
+pytest-cache-files-*/
 .coverage
 htmlcov/
 .mypy_cache/

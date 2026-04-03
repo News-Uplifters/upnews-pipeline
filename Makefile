@@ -1,4 +1,4 @@
-.PHONY: local dev pr qa prod run-local run-dev run-pr run-qa run-prod build-local build-dev build-pr build-qa build-prod logs shell db help
+.PHONY: local dev pr qa prod run-local run-dev run-pr run-qa run-prod run-local-timed run-dev-timed run-pr-timed run-qa-timed run-prod-timed build-local build-dev build-pr build-qa build-prod logs shell db help
 
 # ─── Environment shortcuts ───────────────────────────────────────────────────
 # Build + start (keeps container running; use Ctrl-C to stop)
@@ -32,6 +32,21 @@ run-qa:
 
 run-prod:
 	docker compose --env-file .env.prod run --rm pipeline
+
+run-local-timed:
+	powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env local
+
+run-dev-timed:
+	powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env dev
+
+run-pr-timed:
+	powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env pr
+
+run-qa-timed:
+	powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env qa
+
+run-prod-timed:
+	powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env prod
 
 # ─── Build only (no run) ─────────────────────────────────────────────────────
 build-local:
@@ -91,6 +106,7 @@ help:
 	@echo ""
 	@echo "  One-shot runs (run then remove container):"
 	@echo "    make run-local | run-dev | run-pr | run-qa | run-prod"
+	@echo "    make run-local-timed | run-dev-timed | run-pr-timed | run-qa-timed | run-prod-timed"
 	@echo ""
 	@echo "  Build only:"
 	@echo "    make build-local | build-dev | build-pr | build-qa | build-prod"

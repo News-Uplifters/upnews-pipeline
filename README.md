@@ -225,6 +225,9 @@ make local          # or: docker compose --env-file .env.local up --build
 # Run once and remove container
 make run-local      # or: docker compose --env-file .env.local run --rm pipeline
 
+# Time build + run separately
+powershell -ExecutionPolicy Bypass -File scripts/run_pipeline_timed.ps1 -Env local
+
 # Stop and remove containers
 make stop           # or: docker compose down
 ```
@@ -270,6 +273,16 @@ make run-qa
 ```
 
 If the model directory is missing the pipeline falls back to the rules-based classifier and logs a warning.
+
+### Timing Docker runs
+
+Use [`scripts/run_pipeline_timed.ps1`](C:\Users\abhin\OneDrive\Desktop\Data_Science\Research_Projects\Up_News\upnews-pipeline\scripts\run_pipeline_timed.ps1) to see:
+
+- image build/load time
+- container run time
+- total timed duration
+
+The script accepts `-Env local|dev|pr|qa|prod` and `-SkipBuild` if you only want to time the container run.
 
 ### Persisted data
 

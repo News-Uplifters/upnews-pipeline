@@ -116,6 +116,36 @@ class TestInit:
         }
         assert "articles" in tables
 
+    def test_articles_table_includes_source_and_external_urls(self, db):
+        columns = {
+            row["name"]
+            for row in db.connect().execute("PRAGMA table_info(articles)").fetchall()
+        }
+        assert "source_url" in columns
+        assert "external_url" in columns
+        assert "category_confidence" in columns
+        assert "category_scores" in columns
+
+    def test_crawled_articles_table_created(self, db):
+        conn = db.connect()
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "crawled_articles" in tables
+
+    def test_crawled_articles_table_includes_source_and_external_urls(self, db):
+        columns = {
+            row["name"]
+            for row in db.connect().execute("PRAGMA table_info(crawled_articles)").fetchall()
+        }
+        assert "source_url" in columns
+        assert "external_url" in columns
+        assert "category_confidence" in columns
+        assert "category_scores" in columns
+
     def test_sources_table_created(self, db):
         conn = db.connect()
         tables = {
@@ -172,11 +202,86 @@ class TestInit:
         assert "idx_articles_source" in indexes
         assert "idx_articles_published" in indexes
         assert "idx_articles_score" in indexes
+        assert "idx_crawled_articles_source" in indexes
+        assert "idx_crawled_articles_published" in indexes
+        assert "idx_crawled_articles_score" in indexes
 
     def test_init_idempotent(self, db):
         """Calling init() twice must not raise."""
         db.init()
         db.init()
+
+    def test_init_migrates_legacy_article_tables(self, tmp_path):
+        """Existing databases without URL metadata columns are migrated on init."""
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                rss_url TEXT,
+                active BOOLEAN DEFAULT 1,
+                category TEXT
+            );
+            CREATE TABLE articles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL UNIQUE,
+                source_url TEXT,
+                external_url TEXT,
+                content TEXT,
+                summary TEXT,
+                thumbnail_url TEXT,
+                category TEXT,
+                category_confidence REAL,
+                category_scores TEXT,
+                source_id INTEGER NOT NULL,
+                uplifting_score REAL,
+                published_at DATETIME,
+                crawled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE crawled_articles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL UNIQUE,
+                source_url TEXT,
+                external_url TEXT,
+                content TEXT,
+                summary TEXT,
+                thumbnail_url TEXT,
+                category TEXT,
+                category_confidence REAL,
+                category_scores TEXT,
+                source_id INTEGER NOT NULL,
+                uplifting_score REAL,
+                is_uplifting INTEGER,
+                published_at DATETIME,
+                crawled_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = SQLiteDB(str(db_path))
+        migrated.init()
+        for table_name in ("articles", "crawled_articles"):
+            columns = {
+                row["name"]
+                for row in migrated.connect().execute(
+                    f"PRAGMA table_info({table_name})"
+                ).fetchall()
+            }
+            assert "source_url" in columns
+            assert "external_url" in columns
+            assert "category_confidence" in columns
+            assert "category_scores" in columns
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +416,25 @@ class TestUpsertArticle:
         assert row["content"] is None
         assert row["thumbnail_url"] is None
 
+    def test_source_and_external_urls_stored(self, db):
+        db.upsert_source(_make_source())
+        db.upsert_article(
+            _make_article(
+                source_url="https://www.reddit.com/r/science/comments/1sbjly5/vegetation_traps_nearly_3x_more_microplastic_than/",
+                external_url="https://example.com/original-story",
+                category_confidence=0.82,
+                category_scores={"Health": 0.82, "Community": 0.12},
+            )
+        )
+        row = db.connect().execute(
+            "SELECT source_url, external_url, category_confidence, category_scores FROM articles WHERE url = ?",
+            ("https://example.com/article/1",),
+        ).fetchone()
+        assert row["source_url"] == "https://example.com/original-story"
+        assert row["external_url"] == "https://example.com/original-story"
+        assert row["category_confidence"] == pytest.approx(0.82)
+        assert row["category_scores"] is not None
+
     def test_uplifting_score_stored(self, db):
         db.upsert_source(_make_source())
         db.upsert_article(_make_article(uplifting_score=0.87))
@@ -379,6 +503,53 @@ class TestUpsertArticles:
         db.upsert_articles(articles)
         elapsed_ms = (time.monotonic() - start) * 1000
         assert elapsed_ms < 500, f"Took {elapsed_ms:.1f}ms for 100 articles"
+
+
+class TestUpsertCrawledArticles:
+    def test_bulk_insert_raw_articles(self, db):
+        db.upsert_source(_make_source())
+        articles = [
+            _make_article(url=f"https://example.com/raw/{i}", title=f"Raw {i}", is_uplifting=bool(i % 2))
+            for i in range(4)
+        ]
+        count = db.upsert_crawled_articles(articles)
+        assert count == 4
+        row = db.connect().execute(
+            "SELECT COUNT(*) FROM crawled_articles"
+        ).fetchone()[0]
+        assert row == 4
+
+    def test_bulk_insert_raw_articles_preserves_urls(self, db):
+        db.upsert_source(_make_source())
+        article = _make_article(
+            source_url="https://www.reddit.com/r/science/comments/1sbjly5/vegetation_traps_nearly_3x_more_microplastic_than/",
+            external_url=None,
+            category_confidence=0.61,
+            category_scores={"Science & Tech": 0.61},
+        )
+        db.upsert_crawled_articles([article])
+        row = db.connect().execute(
+            "SELECT source_url, external_url, category_confidence, category_scores FROM crawled_articles WHERE url = ?",
+            ("https://example.com/article/1",),
+        ).fetchone()
+        assert row["source_url"].startswith("https://www.reddit.com/")
+        assert row["external_url"] is None
+        assert row["category_confidence"] == pytest.approx(0.61)
+        assert row["category_scores"] is not None
+
+    def test_purge_non_uplifting_articles(self, db):
+        db.upsert_source(_make_source())
+        db.upsert_articles([
+            _make_article(url="https://example.com/keep", uplifting_score=0.9),
+            _make_article(url="https://example.com/drop", uplifting_score=0.2),
+        ])
+        purged = db.purge_non_uplifting_articles(0.75)
+        assert purged == 1
+        urls = {
+            r["url"]
+            for r in db.connect().execute("SELECT url FROM articles").fetchall()
+        }
+        assert urls == {"https://example.com/keep"}
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +652,7 @@ class TestInitDb:
             .execute("SELECT name FROM sqlite_master WHERE type='table'")
             .fetchall()
         }
-        assert {"articles", "sources", "crawl_metrics", "categories", "bookmarks"} <= tables
+        assert {"articles", "crawled_articles", "sources", "crawl_metrics", "categories", "bookmarks"} <= tables
         db.close()
 
 
@@ -565,15 +736,15 @@ class TestFmtDt:
 
 class TestCategoryToSlug:
     def test_new_labels_return_correct_slug(self):
-        assert _category_to_slug("Health") == "health"
-        assert _category_to_slug("Science & Tech") == "science-tech"
-        assert _category_to_slug("Arts & Culture") == "arts-culture"
+        assert _category_to_slug("Health") == "Health"
+        assert _category_to_slug("Science & Tech") == "Science & Tech"
+        assert _category_to_slug("Arts & Culture") == "Arts & Culture"
 
     def test_legacy_labels_mapped_to_slug(self):
-        assert _category_to_slug("Health & Wellness") == "health"
-        assert _category_to_slug("Technology & Science") == "science-tech"
-        assert _category_to_slug("Culture & Arts") == "arts-culture"
-        assert _category_to_slug("Community & Social Good") == "community"
+        assert _category_to_slug("Health & Wellness") == "Health"
+        assert _category_to_slug("Technology & Science") == "Science & Tech"
+        assert _category_to_slug("Culture & Arts") == "Arts & Culture"
+        assert _category_to_slug("Community & Social Good") == "Community"
 
     def test_none_returns_none(self):
         assert _category_to_slug(None) is None
@@ -584,7 +755,7 @@ class TestCategoryToSlug:
     def test_unknown_category_falls_back_to_slugified(self):
         result = _category_to_slug("Custom Category")
         assert isinstance(result, str)
-        assert " " not in result
+        assert result == "Custom Category"
 
 
 class TestGetSourceIntId:

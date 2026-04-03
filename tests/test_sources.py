@@ -352,11 +352,41 @@ class TestRedditSource:
             articles = src.fetch()
 
         assert len(articles) == 1
-        assert articles[0]["original_url"] == "https://bbc.com/article"
+        assert articles[0]["source_url"] == "https://bbc.com/article"
+        assert articles[0]["external_url"] == "https://bbc.com/article"
+        assert articles[0]["original_url"] == "https://www.reddit.com/r/UpliftingNews/comments/abc123/"
         assert articles[0]["title"] == "Great News"
 
-    def test_fetch_skips_posts_without_external_link(self):
-        """Posts that only link to Reddit itself (gallery, image) should be excluded."""
+    def test_fetch_uses_rss_entry_content_for_external_urls(self):
+        src = self._source()
+        rss_entry = _make_entry("Disney News", "https://www.reddit.com/r/UpliftingNews/comments/abc123/")
+        mock_raw_feed = _make_feed([rss_entry])
+
+        content_entry = MagicMock()
+        content_entry.get = lambda k, default="": {
+            "title": "Disney News",
+            "link": "https://www.reddit.com/r/UpliftingNews/comments/abc123/",
+            "content": [{
+                "value": '<div><a href="https://www.waltdisney.com/story?ref=reddit">Read more</a></div>'
+            }],
+        }.get(k, default)
+        content_entry.published_parsed = None
+        content_entry.updated_parsed = None
+        mock_content_feed = _make_feed([content_entry])
+
+        with patch("crawler.sources.rss.feedparser.parse", return_value=mock_raw_feed), \
+             patch("crawler.sources.reddit.feedparser.parse", return_value=mock_content_feed), \
+             patch.object(src, "_download_feed_content", return_value=None), \
+             patch("crawler.sources.reddit.extract_reddit_external", return_value=None):
+            articles = src.fetch()
+
+        assert len(articles) == 1
+        assert articles[0]["source_url"] == "https://www.waltdisney.com/story"
+        assert articles[0]["external_url"] == "https://www.waltdisney.com/story"
+        assert articles[0]["original_url"] == "https://www.reddit.com/r/UpliftingNews/comments/abc123/"
+
+    def test_fetch_keeps_posts_without_external_link(self):
+        """Posts without an external link fall back to the subreddit URL."""
         src = self._source()
         entries = [
             _make_entry("Gallery Post", "https://www.reddit.com/r/UpliftingNews/comments/gallery/"),
@@ -374,8 +404,11 @@ class TestRedditSource:
              patch("crawler.sources.reddit.extract_reddit_external", side_effect=mock_extract):
             articles = src.fetch()
 
-        assert len(articles) == 1
-        assert articles[0]["original_url"] == "https://example.com/article"
+        assert len(articles) == 2
+        assert articles[0]["original_url"] == "https://www.reddit.com/r/UpliftingNews/comments/gallery/"
+        assert articles[1]["source_url"] == "https://example.com/article"
+        assert articles[1]["external_url"] == "https://example.com/article"
+        assert articles[1]["original_url"] == "https://www.reddit.com/r/UpliftingNews/comments/xyz/"
 
     def test_fetch_respects_limit(self):
         src = self._source()
@@ -550,3 +583,36 @@ class TestCrawlAllSources:
 
         assert len(articles) == 1
         assert articles[0]["title"] == "Good"
+
+    def test_respects_global_article_cap(self):
+        import pandas as pd
+        from crawler.crawl_all_sources import crawl_all_sources
+
+        sources_df = pd.DataFrame([
+            {"name": "First", "source_id": "First", "rss_url": "https://first.com/rss", "threshold": 0.8, "active": True, "adapter": "rss"},
+            {"name": "Second", "source_id": "Second", "rss_url": "https://second.com/rss", "threshold": 0.8, "active": True, "adapter": "rss"},
+        ])
+
+        first_adapter = MagicMock(spec=RSSSource)
+        first_adapter.rss_url = "https://first.com/rss"
+        first_adapter.__class__ = RSSSource
+        first_adapter.fetch.return_value = [
+            {"title": f"First {i}", "original_url": f"https://first.com/a/{i}", "rss_link": f"https://first.com/a/{i}", "published": None, "source_id": "First"}
+            for i in range(5)
+        ]
+
+        second_adapter = MagicMock(spec=RSSSource)
+        second_adapter.rss_url = "https://second.com/rss"
+        second_adapter.__class__ = RSSSource
+        second_adapter.fetch.return_value = [
+            {"title": f"Second {i}", "original_url": f"https://second.com/a/{i}", "rss_link": f"https://second.com/a/{i}", "published": None, "source_id": "Second"}
+            for i in range(5)
+        ]
+
+        with patch("crawler.crawl_all_sources.load_sources", return_value=sources_df), \
+             patch("crawler.crawl_all_sources.get_source_adapter", side_effect=[first_adapter, second_adapter]):
+            articles = crawl_all_sources(limit_per_source=10, max_articles_total=6)
+
+        assert len(articles) == 6
+        assert [a["source_id"] for a in articles[:5]] == ["First"] * 5
+        assert articles[5]["source_id"] == "Second"

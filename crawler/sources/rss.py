@@ -85,6 +85,9 @@ class RSSSource(BaseSource):
         return {
             "title": title,
             "rss_link": rss_link,
+            "source_url": rss_link,
+            "external_url": original_url,
+            "url": original_url,
             "original_url": original_url,
             "published": published,
             "source_id": self.source_id,

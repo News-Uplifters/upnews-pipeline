@@ -10,7 +10,9 @@ title+body pair is never classified twice.
 import hashlib
 import json
 import logging
+import os
 import sqlite3
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,13 @@ DEFAULT_CATEGORIES: List[str] = [
 # ---------------------------------------------------------------------------
 
 _classifier: Optional[Any] = None
+_topic_classifier: Optional[Any] = None
+_TOPIC_MODEL_PATH = "models/setfit_topic_model"
+_TOPIC_MODEL_LABELS_FILE = "labels.json"
+
+
+def _categorization_method() -> str:
+    return os.environ.get("CATEGORIZATION_METHOD", "zero-shot").strip().lower()
 
 
 def _get_classifier() -> Any:
@@ -50,6 +59,75 @@ def _get_classifier() -> Any:
         )
         logger.info("Model loaded.")
     return _classifier
+
+
+def _get_topic_classifier(model_path: str = _TOPIC_MODEL_PATH) -> Any:
+    """Load and cache the local SetFit topic model."""
+    global _topic_classifier
+    if _topic_classifier is None:
+        from setfit import SetFitModel  # noqa: import-outside-toplevel
+
+        logger.info("Loading topic model (%s)…", model_path)
+        _topic_classifier = SetFitModel.from_pretrained(model_path)
+        logger.info("Topic model loaded.")
+    return _topic_classifier
+
+
+def _load_topic_labels(model_path: str = _TOPIC_MODEL_PATH) -> List[str]:
+    labels_path = Path(model_path) / _TOPIC_MODEL_LABELS_FILE
+    if labels_path.exists():
+        with open(labels_path, encoding="utf-8") as f:
+            labels = json.load(f)
+        if isinstance(labels, list) and all(isinstance(label, str) for label in labels):
+            return labels
+    return list(DEFAULT_CATEGORIES)
+
+
+def _predict_topic_scores(classifier: Any, text: str) -> List[float]:
+    """Return per-label probabilities from a SetFit-style topic model."""
+    if hasattr(classifier, "predict_proba"):
+        scores = classifier.predict_proba([text])
+        if hasattr(scores, "tolist"):
+            scores = scores.tolist()
+        if scores and isinstance(scores[0], list):
+            return [float(score) for score in scores[0]]
+        if scores and isinstance(scores[0], (float, int)):
+            return [float(score) for score in scores]
+    raise TypeError("topic classifier must provide predict_proba(texts)")
+
+
+def _categorize_with_topic_model(
+    title: str,
+    body: str = "",
+    categories: Optional[List[str]] = None,
+    _classifier_override: Optional[Any] = None,
+) -> Dict:
+    """Categorize using the local SetFit topic model."""
+    model = _classifier_override if _classifier_override is not None else _get_topic_classifier()
+    model_labels = _load_topic_labels()
+    scores = _predict_topic_scores(model, _build_input_text(title, body))
+
+    label_scores = {
+        label: float(score)
+        for label, score in zip(model_labels, scores)
+    }
+    allowed_categories = categories or DEFAULT_CATEGORIES
+    filtered_scores = {
+        label: score
+        for label, score in label_scores.items()
+        if label in allowed_categories
+    }
+    if not filtered_scores:
+        filtered_scores = label_scores
+
+    top_category = max(filtered_scores, key=filtered_scores.get)
+    confidence = float(filtered_scores[top_category])
+
+    return {
+        "category": top_category,
+        "scores": filtered_scores,
+        "confidence": confidence,
+    }
 
 
 def set_classifier(classifier: Any) -> None:
@@ -188,22 +266,31 @@ def categorize_article(
         logger.debug("Cache hit for title=%r", title[:60])
         return cached
 
-    classifier = (
-        _classifier_override if _classifier_override is not None else _get_classifier()
-    )
-    text = _build_input_text(title, body)
+    method = _categorization_method()
+    if method in {"setfit", "topic", "topic-model"}:
+        result = _categorize_with_topic_model(
+            title=title,
+            body=body,
+            categories=categories,
+            _classifier_override=_classifier_override,
+        )
+    else:
+        classifier = (
+            _classifier_override if _classifier_override is not None else _get_classifier()
+        )
+        text = _build_input_text(title, body)
 
-    output = classifier(text, candidate_labels=categories, multi_label=True)
+        output = classifier(text, candidate_labels=categories, multi_label=True)
 
-    scores = dict(zip(output["labels"], output["scores"]))
-    top_category = output["labels"][0]
-    confidence = float(output["scores"][0])
+        scores = dict(zip(output["labels"], output["scores"]))
+        top_category = output["labels"][0]
+        confidence = float(output["scores"][0])
 
-    result: Dict = {
-        "category": top_category,
-        "scores": scores,
-        "confidence": confidence,
-    }
+        result = {
+            "category": top_category,
+            "scores": scores,
+            "confidence": confidence,
+        }
 
     _cache_set(key, result, cache)
     return result
