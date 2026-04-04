@@ -44,21 +44,18 @@ services:
       DATABASE_PATH: /app/data/upnews.db
       # Rule-based classifier requires no ML model download.
       # Change to 'setfit' and mount a trained model to use the ML path.
-      CLASSIFIER_MODE: ${CLASSIFIER_MODE:-rules}
+      CLASSIFIER_MODE: ${CLASSIFIER_MODE:-setfit}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ARTICLES_LIMIT_PER_SOURCE: ${ARTICLES_LIMIT_PER_SOURCE:-50}
       CLASSIFICATION_THRESHOLD: ${CLASSIFICATION_THRESHOLD:-0.75}
       THUMBNAIL_CONCURRENCY: ${THUMBNAIL_CONCURRENCY:-10}
       THUMBNAIL_TIMEOUT: ${THUMBNAIL_TIMEOUT:-5}
       SUMMARIZATION_METHOD: ${SUMMARIZATION_METHOD:-none}
-      CATEGORIZATION_METHOD: ${CATEGORIZATION_METHOD:-zero-shot}
+      CATEGORIZATION_METHOD: ${CATEGORIZATION_METHOD:-topic}
       MAX_ARTICLES_TOTAL: ${MAX_ARTICLES_TOTAL:-0}
       THUMBNAIL_CACHE_ENABLED: ${THUMBNAIL_CACHE_ENABLED:-true}
       CRAWLER_TIMEOUT: ${CRAWLER_TIMEOUT:-10}
       CRAWLER_RETRIES: ${CRAWLER_RETRIES:-2}
-      # HuggingFace cache (DistilBART, BART-MNLI) — persisted via volume
-      TRANSFORMERS_CACHE: /app/models/hf_cache
-      HF_HOME: /app/models/hf_cache
 
     # ── Volumes ───────────────────────────────────────────────────────────────
     volumes:
@@ -67,8 +64,8 @@ services:
       - upnews-data:/app/data
       # Structured JSON logs
       - ./logs:/app/logs
-      # ML model weights (HuggingFace cache + optional SetFit model)
-      # Pre-populate ./models/setfit_uplifting_model/ to enable CLASSIFIER_MODE=setfit
+      # ML model weights (SetFit topic model + optional uplifting model)
+      # Both SetFit models are bundled in models/ and available via the volume mount below
       - ./models:/app/models
 
     # ── Restart policy ────────────────────────────────────────────────────────
