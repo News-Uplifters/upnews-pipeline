@@ -33,11 +33,6 @@ COPY . .
 RUN mkdir -p data logs models && \
     chmod -R 777 data logs
 
-# HuggingFace model cache goes inside the container's home dir by default;
-# expose it as a volume so models persist across runs.
-ENV TRANSFORMERS_CACHE=/app/models/hf_cache
-ENV HF_HOME=/app/models/hf_cache
-
 # Default environment — override with docker-compose or --env-file
 ENV LOG_LEVEL=INFO \
     DATABASE_PATH=/app/data/upnews.db \
@@ -46,7 +41,7 @@ ENV LOG_LEVEL=INFO \
     THUMBNAIL_CONCURRENCY=10 \
     THUMBNAIL_TIMEOUT=5 \
     SUMMARIZATION_METHOD=none \
-    CATEGORIZATION_METHOD=zero-shot \
+    CATEGORIZATION_METHOD=topic \
     MAX_ARTICLES_TOTAL=0 \
     # Use rule-based classifier by default so Docker works without a
     # pre-trained SetFit model.  Set CLASSIFIER_MODE=setfit and mount
