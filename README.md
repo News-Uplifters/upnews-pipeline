@@ -276,7 +276,7 @@ If the model directory is missing the pipeline falls back to the rules-based cla
 
 ### Timing Docker runs
 
-Use [`scripts/run_pipeline_timed.ps1`](C:\Users\abhin\OneDrive\Desktop\Data_Science\Research_Projects\Up_News\upnews-pipeline\scripts\run_pipeline_timed.ps1) to see:
+Use [`scripts/run_pipeline_timed.ps1`](scripts/run_pipeline_timed.ps1) to see:
 
 - image build/load time
 - container run time
