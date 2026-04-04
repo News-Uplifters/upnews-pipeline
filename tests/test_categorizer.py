@@ -370,6 +370,28 @@ class TestCategorizeBatch:
         assert result[0]["category_confidence"] == pytest.approx(0.91)
 
 
+class TestSetFitTopicMode:
+    def test_topic_model_path_uses_local_labels(self, monkeypatch):
+        monkeypatch.setenv("CATEGORIZATION_METHOD", "setfit")
+
+        class FakeTopicModel:
+            def predict_proba(self, texts):
+                assert texts == ["headline. body"]
+                return [[0.01, 0.92, 0.02, 0.01, 0.0, 0.0, 0.02, 0.02]]
+
+        cache = _fresh_cache()
+        result = categorize_article(
+            "headline",
+            body="body",
+            _cache=cache,
+            _classifier_override=FakeTopicModel(),
+        )
+
+        assert result["category"] == "Community"
+        assert "World" not in result["scores"]
+        assert result["confidence"] == pytest.approx(0.92)
+
+
 # ---------------------------------------------------------------------------
 # set_classifier / global state
 # ---------------------------------------------------------------------------

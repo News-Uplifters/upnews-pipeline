@@ -45,8 +45,9 @@ ENV LOG_LEVEL=INFO \
     CLASSIFICATION_THRESHOLD=0.75 \
     THUMBNAIL_CONCURRENCY=10 \
     THUMBNAIL_TIMEOUT=5 \
-    SUMMARIZATION_METHOD=distilbart \
+    SUMMARIZATION_METHOD=none \
     CATEGORIZATION_METHOD=zero-shot \
+    MAX_ARTICLES_TOTAL=0 \
     # Use rule-based classifier by default so Docker works without a
     # pre-trained SetFit model.  Set CLASSIFIER_MODE=setfit and mount
     # models/setfit_uplifting_model/ to use the ML model instead.

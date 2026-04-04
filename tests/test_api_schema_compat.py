@@ -90,6 +90,27 @@ class TestUnifiedSchemaStructure:
         ).fetchone()
         assert row["content"] == "Full article body."
 
+    def test_articles_has_source_and_external_url_columns(self, db):
+        db.upsert_articles([
+            _article(
+                source_url="https://www.reddit.com/r/science/comments/1sbjly5/vegetation_traps_nearly_3x_more_microplastic_than/",
+                external_url="https://example.com/original-article",
+                category_confidence=0.83,
+                category_scores={"Health": 0.83, "Community": 0.11},
+            )
+        ])
+        row = db.connect().execute(
+            """
+            SELECT source_url, external_url, category_confidence, category_scores
+            FROM articles
+            WHERE url = 'https://example.com/1'
+            """
+        ).fetchone()
+        assert row["source_url"] == "https://example.com/original-article"
+        assert row["external_url"] == "https://example.com/original-article"
+        assert row["category_confidence"] == pytest.approx(0.83)
+        assert row["category_scores"] is not None
+
     def test_articles_has_updated_at_column(self, db):
         db.upsert_articles([_article()])
         row = db.connect().execute(
@@ -125,30 +146,28 @@ class TestUnifiedSchemaStructure:
 
 
 class TestCategorySlugStorage:
-    def test_article_category_stored_as_slug(self, db):
+    def test_article_category_stored_as_name(self, db):
         db.upsert_articles([_article(category="Health")])
         row = db.connect().execute(
             "SELECT category FROM articles WHERE url = 'https://example.com/1'"
         ).fetchone()
-        assert row["category"] == "health"
+        assert row["category"] == "Health"
 
-    def test_legacy_category_mapped_to_slug(self, db):
+    def test_legacy_category_mapped_to_name(self, db):
         db.upsert_articles([_article(category="Health & Wellness")])
         row = db.connect().execute(
             "SELECT category FROM articles WHERE url = 'https://example.com/1'"
         ).fetchone()
-        assert row["category"] == "health"
+        assert row["category"] == "Health"
 
-    def test_all_api_categories_produce_valid_slugs(self):
+    def test_all_api_categories_are_preserved(self):
         api_categories = [
             "Health", "Environment", "Community",
             "Science & Tech", "Education", "Sports", "Arts & Culture",
         ]
         for cat in api_categories:
-            slug = _category_to_slug(cat)
-            assert slug is not None
-            assert " " not in slug
-            assert slug == slug.lower()
+            normalized = _category_to_slug(cat)
+            assert normalized == cat
 
 
 # ---------------------------------------------------------------------------
@@ -181,13 +200,13 @@ class TestAPIStyleQueries:
             assert row["updated_at"] is not None
 
     def test_api_style_filter_by_category_slug(self, db):
-        """API can filter articles by category slug."""
+        """API-style lookup works against the canonical category name."""
         db.upsert_articles([
             _article(url="https://example.com/health", category="Health"),
             _article(url="https://example.com/env", title="Green news", category="Environment"),
         ])
         rows = db.connect().execute(
-            "SELECT url FROM articles WHERE category = ?", ("health",)
+            "SELECT url FROM articles WHERE category = ?", ("Health",)
         ).fetchall()
         assert len(rows) == 1
         assert rows[0]["url"] == "https://example.com/health"

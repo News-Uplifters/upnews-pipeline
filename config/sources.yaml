@@ -81,6 +81,213 @@ sources:
     adapter: "reddit"
     threshold: 0.80
 
+  # Additional uplifting sources
+  - name: "Reddit r/EcoUplift"
+    source_id: "RedditEcoUplift"
+    base_url: "https://www.reddit.com/r/EcoUplift/"
+    rss_url: "https://www.reddit.com/r/EcoUplift/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Reddit r/RenewableEnergy"
+    source_id: "RedditRenewableEnergy"
+    base_url: "https://www.reddit.com/r/RenewableEnergy/"
+    rss_url: "https://www.reddit.com/r/RenewableEnergy/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Reddit r/OptimistsUnite"
+    source_id: "RedditOptimistsUnite"
+    base_url: "https://www.reddit.com/r/OptimistsUnite/"
+    rss_url: "https://www.reddit.com/r/OptimistsUnite/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Reddit r/Positive_News"
+    source_id: "RedditPositiveNews"
+    base_url: "https://www.reddit.com/r/Positive_News/"
+    rss_url: "https://www.reddit.com/r/Positive_News/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Positive News"
+    source_id: "PositiveNews"
+    base_url: "https://www.positive.news/"
+    rss_url: "https://www.positive.news/feed/"
+    active: true
+    category: "news"
+    threshold: 0.80
+
+  - name: "Good News Network"
+    source_id: "GoodNewsNetwork"
+    base_url: "https://www.goodnewsnetwork.org/"
+    rss_url: "https://www.goodnewsnetwork.org/feed/"
+    active: true
+    category: "news"
+    threshold: 0.80
+
+  - name: "Reasons to be Cheerful"
+    source_id: "ReasonsToBeCheerful"
+    base_url: "https://reasonstobecheerful.world/"
+    rss_url: "https://reasonstobecheerful.world/feed/"
+    active: true
+    category: "news"
+    threshold: 0.80
+
+  - name: "The Happy Broadcast"
+    source_id: "TheHappyBroadcast"
+    base_url: "https://thehappybroadcast.com/"
+    rss_url: "https://thehappybroadcast.tumblr.com/rss"
+    active: true
+    category: "social"
+    threshold: 0.80
+
+  - name: "Good Good Good"
+    source_id: "GoodGoodGood"
+    base_url: "https://www.goodgoodgood.co/"
+    rss_url: "https://www.goodgoodgood.co/feed/"
+    active: true
+    category: "news"
+    threshold: 0.80
+
+  - name: "The Better India"
+    source_id: "BetterIndia"
+    base_url: "https://thebetterindia.com/"
+    rss_url: "https://thebetterindia.com/feed/"
+    active: true
+    category: "news"
+    threshold: 0.80
+
+  - name: "The Good News Hub"
+    source_id: "GoodNewsHub"
+    base_url: "https://thegoodnewshub.com/"
+    rss_url: "https://thegoodnewshub.com/feed/"
+    active: true
+    category: "news"
+    threshold: 0.70
+
+  - name: "SunnySkyz"
+    source_id: "SunnySkyz"
+    base_url: "https://www.sunnyskyz.com/"
+    rss_url: "https://www.sunnyskyz.com/rss_tebow.php"
+    active: true
+    category: "news"
+    threshold: 0.70
+
+  - name: "ScienceDaily"
+    source_id: "ScienceDaily"
+    base_url: "https://www.sciencedaily.com/"
+    rss_url: "https://www.sciencedaily.com/rss/all.xml"
+    active: true
+    category: "science"
+    threshold: 0.80
+
+  - name: "Ars Technica Science"
+    source_id: "ArsTechnicaScience"
+    base_url: "https://arstechnica.com/science/"
+    rss_url: "https://feeds.arstechnica.com/arstechnica/science"
+    active: true
+    category: "science"
+    threshold: 0.85
+
+  - name: "MIT Technology Review"
+    source_id: "MITTechnologyReview"
+    base_url: "https://www.technologyreview.com/"
+    rss_url: "https://www.technologyreview.com/feed/"
+    active: true
+    category: "science"
+    threshold: 0.85
+
+  - name: "Phys.org"
+    source_id: "PhysOrg"
+    base_url: "https://phys.org/"
+    rss_url: "https://phys.org/rss-feed/"
+    active: true
+    category: "science"
+    threshold: 0.85
+
+  - name: "New Scientist"
+    source_id: "NewScientist"
+    base_url: "https://www.newscientist.com/"
+    rss_url: "https://www.newscientist.com/section/news/feed/"
+    active: true
+    category: "science"
+    threshold: 0.85
+
+  - name: "EcoWatch"
+    source_id: "EcoWatch"
+    base_url: "https://www.ecowatch.com/"
+    rss_url: "https://www.ecowatch.com/rss"
+    active: true
+    category: "environment"
+    threshold: 0.80
+
+  - name: "Reddit r/HumansBeingBros"
+    source_id: "RedditHumansBeingBros"
+    base_url: "https://www.reddit.com/r/HumansBeingBros/"
+    rss_url: "https://www.reddit.com/r/HumansBeingBros/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
+  - name: "Reddit r/Futurology"
+    source_id: "RedditFuturology"
+    base_url: "https://www.reddit.com/r/Futurology/"
+    rss_url: "https://www.reddit.com/r/Futurology/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.80
+
+  - name: "Reddit r/todayilearned"
+    source_id: "RedditTodayILearned"
+    base_url: "https://www.reddit.com/r/todayilearned/"
+    rss_url: "https://www.reddit.com/r/todayilearned/.rss"
+    active: false
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.85
+
+  - name: "Reddit r/EverythingScience"
+    source_id: "RedditEverythingScience"
+    base_url: "https://www.reddit.com/r/EverythingScience/"
+    rss_url: "https://www.reddit.com/r/EverythingScience/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.85
+
+  - name: "BBC Science"
+    source_id: "BBCScience"
+    rss_url: "http://feeds.bbci.co.uk/news/science_and_environment/rss.xml"
+    active: true
+    category: "science"
+    threshold: 0.80
+
+  - name: "DW (Deutsche Welle)"
+    source_id: "DW"
+    rss_url: "https://rss.dw.com/rdf/rss-en-all"
+    active: true
+    category: "news"
+    threshold: 0.85
+
+  - name: "Reddit r/Science"
+    source_id: "RedditScience"
+    rss_url: "https://www.reddit.com/r/science/.rss"
+    active: true
+    category: "reddit"
+    adapter: "reddit"
+    threshold: 0.75
+
   # Local news (placeholders - configure for your region)
   - name: "Local News Feed"
     source_id: "LocalNews"
@@ -118,24 +325,3 @@ sources:
     category: "news"
     threshold: 0.85
 
-  - name: "DW (Deutsche Welle)"
-    source_id: "DW"
-    rss_url: "https://www.dw.com/en/?&format=rss"
-    active: false
-    category: "news"
-    threshold: 0.85
-
-  - name: "BBC Science"
-    source_id: "BBCScience"
-    rss_url: "http://feeds.bbc.co.uk/news/science_and_environment/rss.xml"
-    active: false
-    category: "science"
-    threshold: 0.80
-
-  - name: "Reddit r/Science"
-    source_id: "RedditScience"
-    rss_url: "https://www.reddit.com/r/science/.rss"
-    active: false
-    category: "reddit"
-    adapter: "reddit"
-    threshold: 0.75

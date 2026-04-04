@@ -289,6 +289,29 @@ class TestRealSourcesYaml:
         missing_url = df[df["rss_url"].isna()]
         assert missing_url.empty, f"Active sources missing rss_url: {missing_url['source_id'].tolist()}"
 
+    def test_real_yaml_includes_new_uplifting_sources(self):
+        if not os.path.exists(self.YAML_PATH):
+            pytest.skip("config/sources.yaml not found")
+        df = load_sources(path=self.YAML_PATH)
+        expected = {
+            "GoodNewsHub",
+            "SunnySkyz",
+            "ScienceDaily",
+            "ArsTechnicaScience",
+            "MITTechnologyReview",
+            "PhysOrg",
+            "NewScientist",
+            "EcoWatch",
+            "RedditHumansBeingBros",
+            "RedditWholesome",
+            "RedditFuturology",
+            "RedditEverythingScience",
+            "BBCScience",
+            "DW",
+            "RedditScience",
+        }
+        assert expected <= set(df["source_id"])
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

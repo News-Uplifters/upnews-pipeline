@@ -385,3 +385,36 @@ def test_pipeline_runs_with_rule_based_classifier(
     assert result["articles_fetched"] == 1
     # Rule-based model should classify at least the positively-hinted article
     assert result.get("articles_classified", 0) >= 0  # may vary based on score
+
+
+@patch("pipeline.run_pipeline.crawl_all_sources")
+@patch("pipeline.run_pipeline.load_model")
+@patch("enrichment.categorizer.categorize_batch")
+@patch("enrichment.thumbnails.extract_thumbnails_batch")
+def test_pipeline_uses_title_as_summary_when_enabled(
+    mock_thumbs, mock_categorize, mock_load_model, mock_crawl, monkeypatch, tmp_path
+):
+    """SUMMARIZATION_METHOD=title stores the article title instead of calling the LLM."""
+    monkeypatch.setenv("SUMMARIZATION_METHOD", "title")
+    monkeypatch.setenv("CLASSIFIER_MODE", "rules")
+    db_path = str(tmp_path / "test.db")
+    _seed_source(db_path)
+
+    title = "Community garden helps families thrive"
+    raw = [_make_article(original_url="https://example.com/title-summary", title=title)]
+    mock_crawl.return_value = raw
+    mock_load_model.return_value = _make_mock_model([0.92])
+    mock_categorize.side_effect = lambda arts: [{**a, "category": "Community"} for a in arts]
+    mock_thumbs.return_value = {}
+
+    from pipeline.run_pipeline import run_pipeline
+    run_pipeline(db_path=db_path)
+
+    db = SQLiteDB(db_path)
+    row = db.connect().execute(
+        "SELECT summary FROM articles WHERE url = ?",
+        ("https://example.com/title-summary",),
+    ).fetchone()
+    assert row is not None
+    assert row[0] == title
+    db.close()

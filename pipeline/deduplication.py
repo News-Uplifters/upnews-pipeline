@@ -138,7 +138,16 @@ def _title_published_dedup(articles: List[Dict], db) -> List[Dict]:
         title = article["title"]
         published_at = str(article["published_at"])
         row = conn.execute(
-            "SELECT 1 FROM articles WHERE title = ? AND published_at = ? LIMIT 1",
+            """
+            SELECT 1
+            FROM (
+                SELECT title, published_at FROM crawled_articles
+                UNION
+                SELECT title, published_at FROM articles
+            )
+            WHERE title = ? AND published_at = ?
+            LIMIT 1
+            """,
             (title, published_at),
         ).fetchone()
         if row is not None:

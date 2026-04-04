@@ -78,6 +78,14 @@ class _RuleBasedModel:
         return results
 
 def filter_positive_news(df, model, threshold=0.75, source_thresholds=None):
+    scored_df = score_news(df, model, threshold=threshold, source_thresholds=source_thresholds)
+    if scored_df.empty:
+        return scored_df
+    return scored_df[scored_df["is_uplifting"]].drop(columns=["min_threshold"], errors="ignore")
+
+
+def score_news(df, model, threshold=0.75, source_thresholds=None):
+    """Return *df* with uplifting scores and a boolean uplift flag for every row."""
     if df.empty:
         return df.copy()
     df = df.copy()
@@ -91,10 +99,10 @@ def filter_positive_news(df, model, threshold=0.75, source_thresholds=None):
         df["min_threshold"] = df[source_col].map(source_thresholds).fillna(threshold)
     else:
         df["min_threshold"] = threshold
-    positive_df = df[df["uplifting_score"] >= df["min_threshold"]]
-    if source_col in positive_df.columns and "title" in positive_df.columns and source_thresholds:
+    df["is_uplifting"] = df["uplifting_score"] >= df["min_threshold"]
+    if source_col in df.columns and "title" in df.columns and source_thresholds:
         strict_sources = set(source_thresholds.keys())
-        strict_mask = positive_df[source_col].isin(strict_sources)
-        hint_mask = positive_df["title"].apply(lambda t: _has_uplifting_hint(t, UPLIFTING_HINTS))
-        positive_df = positive_df[~strict_mask | hint_mask]
-    return positive_df.drop(columns=["min_threshold"], errors="ignore")
+        strict_mask = df[source_col].isin(strict_sources)
+        hint_mask = df["title"].apply(lambda t: _has_uplifting_hint(t, UPLIFTING_HINTS))
+        df.loc[strict_mask & ~hint_mask, "is_uplifting"] = False
+    return df
