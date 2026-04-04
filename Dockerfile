@@ -43,10 +43,8 @@ ENV LOG_LEVEL=INFO \
     SUMMARIZATION_METHOD=none \
     CATEGORIZATION_METHOD=topic \
     MAX_ARTICLES_TOTAL=0 \
-    # Use rule-based classifier by default so Docker works without a
-    # pre-trained SetFit model.  Set CLASSIFIER_MODE=setfit and mount
-    # models/setfit_uplifting_model/ to use the ML model instead.
-    CLASSIFIER_MODE=rules
+    # Both SetFit models are bundled in models/ and mounted via the volume.
+    CLASSIFIER_MODE=setfit
 
 # Expose the data directory as a volume so the SQLite DB is persisted
 VOLUME ["/app/data", "/app/logs", "/app/models"]
