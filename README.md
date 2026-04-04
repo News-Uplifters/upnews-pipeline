@@ -75,7 +75,8 @@ upnews-pipeline/
 │   ├── database.py                # SQLite layer (schema, UPSERT, transactions)
 │   ├── deduplication.py           # URL + title/published_at deduplication
 │   ├── logging_config.py          # JSON formatter and CrawlMetrics tracker
-│   └── summarizer.py              # Summary generation integration
+│   ├── summarizer.py              # Summary generation integration
+│   └── inference_client.py        # HTTP client for upnews-inference (with local fallback)
 │
 ├── tests/
 │   ├── conftest.py                # Shared fixtures, ML dependency stubs
@@ -160,6 +161,46 @@ sources:
 | `category` | Source type (`news`, `reddit`, etc.) |
 | `adapter` | Source adapter to use (`rss` default, `reddit` for Reddit feeds) |
 | `threshold` | Minimum uplifting score to store an article (0.0–1.0) |
+
+## Inference Service Integration
+
+The pipeline can delegate all ML inference (uplifting classification, topic categorisation, summarisation) to the [`upnews-inference`](https://github.com/News-Uplifters/upnews-inference) microservice instead of loading models locally. This eliminates the 10–30 second model cold-start on every pipeline run.
+
+### How it works
+
+`pipeline/inference_client.py` provides an `InferenceClient` that:
+
+- **When `INFERENCE_SERVICE_URL` is set** — POSTs to the inference service for classify / categorize / summarize
+- **When `INFERENCE_SERVICE_URL` is unset or the service is unreachable** — falls back transparently to the existing local model implementations (`_RuleBasedModel`, `categorize_batch`, `summarize`)
+
+Zero behaviour change today — the env var is unset by default so the pipeline runs exactly as before.
+
+### Enabling the inference service
+
+```bash
+# Point the pipeline at a running upnews-inference instance
+export INFERENCE_SERVICE_URL=http://localhost:8001
+
+# Run a crawl — ML calls go to the inference service
+python -m pipeline.run_pipeline
+```
+
+Or set it in your env file:
+
+```bash
+# .env.local / .env.dev
+INFERENCE_SERVICE_URL=http://localhost:8001
+INFERENCE_TIMEOUT_SEC=30
+```
+
+When running via `upnews-infra` with `--profile ml`, `INFERENCE_SERVICE_URL` is set automatically — see [upnews-infra](https://github.com/News-Uplifters/upnews-infra).
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `INFERENCE_SERVICE_URL` | _(empty)_ | Base URL of `upnews-inference`. Empty = use local fallback |
+| `INFERENCE_TIMEOUT_SEC` | `30` | HTTP timeout (seconds) for calls to the inference service |
 
 ## Running the Pipeline
 
