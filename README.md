@@ -11,7 +11,7 @@ The pipeline runs in a continuous loop:
 1. **Crawls** RSS feeds from curated sources defined in `config/sources.yaml`
 2. **Deduplicates** against existing DB entries to skip already-processed articles
 3. **Classifies** articles as uplifting/positive using a fine-tuned SetFit model with rule-based fallback
-4. **Enriches** articles with thumbnails (OG image extraction), summaries (DistilBART), and categories (zero-shot classification)
+4. **Enriches** articles with thumbnails (OG image extraction) and categories (bundled SetFit topic model)
 5. **Stores** articles in SQLite with structured JSON logs and crawl health metrics
 
 ## Architecture
@@ -37,8 +37,7 @@ The pipeline runs in a continuous loop:
 │         ▼                                           │
 │  enrichment/                                        │
 │  ├─ thumbnails.py   (OG image extraction, async)    │
-│  ├─ summarizer.py   (DistilBART summarization)      │
-│  └─ categorizer.py  (zero-shot classification)      │
+│  └─ categorizer.py  (SetFit topic model)            │
 │         │                                           │
 │         ▼                                           │
 │  pipeline/database.py → data/articles.db            │
