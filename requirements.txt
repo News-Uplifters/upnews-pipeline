@@ -14,7 +14,7 @@ pyyaml==6.0.1
 transformers==4.36.2
 # Keep Docker on the CPU-only wheel; otherwise pip may pull large CUDA deps.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.3.1+cpu
+torch==2.9.1+cpu
 setfit==0.7.0
 # numpy omitted: transitive dep of torch/pandas, no need to pin explicitly
 # SetFit is used when CLASSIFIER_MODE=setfit and model weights exist in
