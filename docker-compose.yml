@@ -44,7 +44,7 @@ services:
       DATABASE_PATH: /app/data/upnews.db
       # Rule-based classifier requires no ML model download.
       # Change to 'setfit' and mount a trained model to use the ML path.
-      CLASSIFIER_MODE: ${CLASSIFIER_MODE:-rules}
+      CLASSIFIER_MODE: ${CLASSIFIER_MODE:-setfit}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ARTICLES_LIMIT_PER_SOURCE: ${ARTICLES_LIMIT_PER_SOURCE:-50}
       CLASSIFICATION_THRESHOLD: ${CLASSIFICATION_THRESHOLD:-0.75}
@@ -65,7 +65,7 @@ services:
       # Structured JSON logs
       - ./logs:/app/logs
       # ML model weights (SetFit topic model + optional uplifting model)
-      # Pre-populate ./models/setfit_uplifting_model/ to enable CLASSIFIER_MODE=setfit
+      # Both SetFit models are bundled in models/ and available via the volume mount below
       - ./models:/app/models
 
     # ── Restart policy ────────────────────────────────────────────────────────
