@@ -131,27 +131,7 @@ def _title_published_dedup(articles: List[Dict], db) -> List[Dict]:
     if not candidates:
         return articles
 
-    conn = db.connect()
-    existing_pairs: set = set()
-
-    for article in candidates:
-        title = article["title"]
-        published_at = str(article["published_at"])
-        row = conn.execute(
-            """
-            SELECT 1
-            FROM (
-                SELECT title, published_at FROM crawled_articles
-                UNION
-                SELECT title, published_at FROM articles
-            )
-            WHERE title = ? AND published_at = ?
-            LIMIT 1
-            """,
-            (title, published_at),
-        ).fetchone()
-        if row is not None:
-            existing_pairs.add((title, published_at))
+    existing_pairs = db.get_existing_title_published_pairs(candidates)
 
     if not existing_pairs:
         return articles
