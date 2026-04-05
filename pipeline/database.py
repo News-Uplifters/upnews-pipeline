@@ -11,6 +11,7 @@ Provides:
 
 import logging
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -451,6 +452,30 @@ class SQLiteDB:
         ).fetchall()
         return {row["url"] for row in rows}
 
+    def get_existing_title_published_pairs(self, candidates: List[Dict]) -> set:
+        """Return (title, published_at) pairs from *candidates* already in the DB."""
+        if not candidates:
+            return set()
+        conn = self.connect()
+        existing: set = set()
+        for article in candidates:
+            title = article["title"]
+            published_at = str(article["published_at"])
+            row = conn.execute(
+                """
+                SELECT 1 FROM (
+                    SELECT title, published_at FROM crawled_articles
+                    UNION
+                    SELECT title, published_at FROM articles
+                ) WHERE title = ? AND published_at = ?
+                LIMIT 1
+                """,
+                (title, published_at),
+            ).fetchone()
+            if row is not None:
+                existing.add((title, published_at))
+        return existing
+
     def purge_non_uplifting_articles(self, threshold: float = 0.75) -> int:
         """Remove non-uplifting rows from the final ``articles`` table."""
         conn = self.connect()
@@ -604,8 +629,18 @@ class SQLiteDB:
 # ---------------------------------------------------------------------------
 
 
-def init_db(db_path: str = _DEFAULT_DB_PATH) -> SQLiteDB:
-    """Create (or open) the database at *db_path*, apply schema, return instance."""
+def init_db(db_path: str = _DEFAULT_DB_PATH):
+    """Create (or open) the database, apply schema, return instance.
+
+    When the ``DATABASE_URL`` environment variable is set the pipeline writes
+    to Postgres (used by the Rust stack).  Otherwise it falls back to SQLite at
+    *db_path*.
+    """
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        db = PostgresDB(database_url)
+        db.init()
+        return db
     db = SQLiteDB(db_path)
     db.init()
     return db
@@ -623,6 +658,314 @@ def write_articles(
     with SQLiteDB(db_path) as _db:
         _db.init()
         return _db.upsert_articles(articles)
+
+
+# ---------------------------------------------------------------------------
+# PostgresDB — used when DATABASE_URL is set (Rust/Postgres stack)
+# ---------------------------------------------------------------------------
+
+
+class PostgresDB:
+    """Postgres backend for the upnews pipeline (Rust stack).
+
+    Implements the same interface as SQLiteDB so run_pipeline.py is
+    backend-agnostic.  DDL is managed by the Rust API's sqlx migrations,
+    so init() just verifies connectivity.
+    """
+
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        self._conn = None
+
+    # ------------------------------------------------------------------
+    # Connection management
+    # ------------------------------------------------------------------
+
+    def connect(self):
+        if self._conn is None or self._conn.closed:
+            import psycopg2  # noqa: import-outside-toplevel
+            self._conn = psycopg2.connect(self.database_url)
+            self._conn.autocommit = False
+        return self._conn
+
+    def close(self) -> None:
+        if self._conn is not None and not self._conn.closed:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "PostgresDB":
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
+    # ------------------------------------------------------------------
+    # Schema
+    # ------------------------------------------------------------------
+
+    def init(self) -> None:
+        """Verify connectivity and seed sources — DDL is owned by the Rust API's migrations."""
+        self.connect()
+        host = self.database_url.split("@")[-1] if "@" in self.database_url else self.database_url
+        logger.info("Connected to Postgres at %s", host)
+        self._seed_sources()
+
+    def _seed_sources(self) -> None:
+        """Upsert sources from config/sources.yaml into Postgres."""
+        config_path = Path(__file__).parent.parent / "config" / "sources.yaml"
+        if not config_path.exists():
+            return
+        with open(config_path) as f:
+            sources = yaml.safe_load(f).get("sources", [])
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO sources (source_id, name, domain, rss_url, url, active, category)
+                    VALUES (%(source_id)s, %(name)s, %(domain)s, %(rss_url)s, %(url)s, %(active)s, %(category)s)
+                    ON CONFLICT(source_id) DO UPDATE SET
+                        name=EXCLUDED.name, domain=EXCLUDED.domain, rss_url=EXCLUDED.rss_url,
+                        url=EXCLUDED.url, active=EXCLUDED.active, category=EXCLUDED.category
+                    """,
+                    [
+                        {
+                            "source_id": src.get("source_id"),
+                            "name": src["name"],
+                            "domain": src.get("domain"),
+                            "rss_url": src.get("rss_url"),
+                            "url": src.get("url"),
+                            "active": bool(src.get("active", True)),
+                            "category": src.get("category"),
+                        }
+                        for src in sources
+                        if src.get("source_id")
+                    ],
+                )
+        logger.info("Seeded %d sources into Postgres", len(sources))
+
+    # ------------------------------------------------------------------
+    # Context manager for transactions
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def transaction(self):
+        conn = self.connect()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # Sources
+    # ------------------------------------------------------------------
+
+    def upsert_source(self, source: Dict) -> int:
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO sources (source_id, name, domain, rss_url, url, active, category)
+                VALUES (%(source_id)s, %(name)s, %(domain)s, %(rss_url)s, %(url)s, %(active)s, %(category)s)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    name=EXCLUDED.name, domain=EXCLUDED.domain, rss_url=EXCLUDED.rss_url,
+                    url=EXCLUDED.url, active=EXCLUDED.active, category=EXCLUDED.category
+                """,
+                {
+                    "source_id": source.get("source_id", ""),
+                    "name": source.get("name", ""),
+                    "domain": source.get("domain"),
+                    "rss_url": source.get("rss_url"),
+                    "url": source.get("url"),
+                    "active": bool(source.get("active", True)),
+                    "category": source.get("category"),
+                },
+            )
+            cur.execute("SELECT id FROM sources WHERE source_id = %s", (source.get("source_id", ""),))
+            row = cur.fetchone()
+            conn.commit()
+        return row[0] if row else -1
+
+    def upsert_sources(self, sources: Sequence[Dict]) -> int:
+        data = [
+            {
+                "source_id": s.get("source_id", ""),
+                "name": s.get("name", ""),
+                "domain": s.get("domain"),
+                "rss_url": s.get("rss_url"),
+                "url": s.get("url"),
+                "active": bool(s.get("active", True)),
+                "category": s.get("category"),
+            }
+            for s in sources
+        ]
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO sources (source_id, name, domain, rss_url, url, active, category)
+                    VALUES (%(source_id)s, %(name)s, %(domain)s, %(rss_url)s, %(url)s, %(active)s, %(category)s)
+                    ON CONFLICT(source_id) DO UPDATE SET
+                        name=EXCLUDED.name, domain=EXCLUDED.domain, rss_url=EXCLUDED.rss_url,
+                        url=EXCLUDED.url, active=EXCLUDED.active, category=EXCLUDED.category
+                    """,
+                    data,
+                )
+                return cur.rowcount
+
+    def get_source_int_id(self, source_key: str) -> Optional[int]:
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM sources WHERE source_id = %s LIMIT 1", (source_key,))
+            row = cur.fetchone()
+        return row[0] if row else None
+
+    def get_source_int_id_map(self, source_keys: List[str]) -> Dict[str, int]:
+        if not source_keys:
+            return {}
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, source_id FROM sources WHERE source_id = ANY(%s)",
+                (list(source_keys),),
+            )
+            return {row[1]: row[0] for row in cur.fetchall()}
+
+    # ------------------------------------------------------------------
+    # Articles
+    # ------------------------------------------------------------------
+
+    def upsert_articles(self, articles: Sequence[Dict]) -> int:
+        if not articles:
+            return 0
+        source_keys = list({a.get("source_id", "") for a in articles if a.get("source_id")})
+        source_id_map = self.get_source_int_id_map(source_keys)
+
+        rows = []
+        for a in articles:
+            str_key = a.get("source_id", "")
+            int_id = source_id_map.get(str_key)
+            if int_id is None:
+                raise ValueError(
+                    f"source_id {str_key!r} not found in sources table — "
+                    "call upsert_source() first."
+                )
+            row = _article_to_row(a)
+            row["source_id"] = int_id
+            rows.append(row)
+
+        insert_sql = """
+            INSERT INTO articles
+                (title, url, content, summary, thumbnail_url, category,
+                 source_id, uplifting_score, published_at, crawled_at, updated_at)
+            VALUES
+                (%(title)s, %(url)s, %(content)s, %(summary)s, %(thumbnail_url)s, %(category)s,
+                 %(source_id)s, %(uplifting_score)s, %(published_at)s, %(crawled_at)s, %(updated_at)s)
+            ON CONFLICT(url) DO UPDATE SET
+                title=EXCLUDED.title, content=EXCLUDED.content, summary=EXCLUDED.summary,
+                thumbnail_url=EXCLUDED.thumbnail_url, category=EXCLUDED.category,
+                uplifting_score=EXCLUDED.uplifting_score, published_at=EXCLUDED.published_at,
+                crawled_at=EXCLUDED.crawled_at, updated_at=EXCLUDED.updated_at
+        """
+        with self.transaction() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(insert_sql, rows)
+        count = len(rows)
+        logger.info("Upserted %d articles into articles", count)
+        return count
+
+    def upsert_crawled_articles(self, articles: Sequence[Dict]) -> int:
+        """No-op — crawled_articles is not in the Rust API's Postgres schema."""
+        logger.debug(
+            "upsert_crawled_articles: skipped for Postgres backend (%d articles)", len(articles)
+        )
+        return len(articles)
+
+    def article_exists(self, url: str) -> bool:
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM articles WHERE url = %s LIMIT 1", (url,))
+            return cur.fetchone() is not None
+
+    def get_existing_urls(self, urls: Sequence[str]) -> set:
+        if not urls:
+            return set()
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute("SELECT url FROM articles WHERE url = ANY(%s)", (list(urls),))
+            return {row[0] for row in cur.fetchall()}
+
+    def get_existing_title_published_pairs(self, candidates: List[Dict]) -> set:
+        """Return (title, published_at) pairs from *candidates* already in the DB."""
+        if not candidates:
+            return set()
+        conn = self.connect()
+        existing: set = set()
+        with conn.cursor() as cur:
+            for article in candidates:
+                title = article["title"]
+                published_at = str(article["published_at"])
+                # Match on date prefix to handle timezone format differences between
+                # the pipeline's string representation and Postgres TIMESTAMPTZ output.
+                cur.execute(
+                    "SELECT 1 FROM articles WHERE title = %s AND published_at::text LIKE %s LIMIT 1",
+                    (title, published_at[:10] + "%"),
+                )
+                if cur.fetchone() is not None:
+                    existing.add((title, published_at))
+        return existing
+
+    def purge_non_uplifting_articles(self, threshold: float = 0.75) -> int:
+        """Remove non-uplifting rows from the articles table."""
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM articles WHERE uplifting_score IS NULL OR uplifting_score < %s",
+                (threshold,),
+            )
+            count = cur.rowcount
+            conn.commit()
+        return count
+
+    # ------------------------------------------------------------------
+    # Crawl metrics
+    # ------------------------------------------------------------------
+
+    def record_crawl_metrics(
+        self,
+        crawl_start: datetime,
+        crawl_end: datetime,
+        articles_fetched: int,
+        articles_classified: int,
+        articles_stored: int,
+        avg_classification_score: Optional[float] = None,
+        errors: Optional[str] = None,
+    ) -> int:
+        conn = self.connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO crawl_metrics
+                    (crawl_start, crawl_end, articles_fetched, articles_classified,
+                     articles_stored, avg_classification_score, errors)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    crawl_start,
+                    crawl_end,
+                    articles_fetched,
+                    articles_classified,
+                    articles_stored,
+                    avg_classification_score,
+                    errors,
+                ),
+            )
+            row = cur.fetchone()
+            conn.commit()
+        return row[0] if row else -1
 
 
 # ---------------------------------------------------------------------------
